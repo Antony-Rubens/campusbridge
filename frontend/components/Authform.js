@@ -10,7 +10,7 @@ export default function AuthForm() {
   const handleGoogleLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: 'http://localhost:3000/dashboard' }
+      options: { redirectTo: 'http://localhost:3000/discover' }
     })
     if (error) alert(error.message)
   }
