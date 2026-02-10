@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusBridge - Learn Together</title>
+    <link rel="stylesheet" href="clone.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <header>
+        <div class="navbar">
+            <div class="nav-logo">
+                <span class="logo-text">CampusBridge</span>
+            </div>
+            <div class="nav-sign-in" id="loginBtn">Sign In</div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1>Welcome to CampusBridge</h1>
+            <p>Your gateway to collaborative learning and academic excellence</p>
+            <p class="welcome-message">Sign in to access your courses, assignments, and connect with your academic community.</p>
+        </div>
+    </section>
+
+    <!-- Image Carousel Section -->
+    <section class="carousel-section">
+        <div class="carousel-container">
+            <div class="carousel">
+                <div class="carousel-slide active">
+                    <img src="https://th.bing.com/th/id/OIP.vrHkv0hHDCYSkFggZ93YKQHaDt?w=344&h=175&c=7&r=0&o=7&pid=1.7&rm=3" alt="Campus">
+                </div>
+                <div class="carousel-slide">
+                    <img src="https://aisat.ac.in/wp-content/uploads/2024/01/main-imag.jpg" alt="Campus Building">
+                </div>
+                <div class="carousel-slide">
+                    <img src="https://tse3.mm.bing.net/th/id/OIP.hl0vQyjqm3xSa2YHnwiB2wHaE7?pid=ImgDet&w=474&h=315&rs=1&o=7&rm=3" alt="Campus Infrastructure">
+                </div>
+            </div>
+            <button class="carousel-btn prev" id="prevBtn">❮</button>
+            <button class="carousel-btn next" id="nextBtn">❯</button>
+            <div class="carousel-dots">
+                <span class="dot active" onclick="currentSlide(1)"></span>
+                <span class="dot" onclick="currentSlide(2)"></span>
+                <span class="dot" onclick="currentSlide(3)"></span>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- Featured Section -->
+    <section class="featured">
+        <div class="about-container">
+            <h2>About CampusBridge</h2>
+            <p>CampusBridge is a comprehensive learning platform designed to help students collaborate, learn, and excel in their academic journey. Our mission is to connect students with quality educational resources and foster an environment of knowledge sharing.</p>
+            <div class="features">
+                <div class="feature-item">
+                    <h3>Collaborative Learning</h3>
+                    <p>Work together with peers and instructors in real-time.</p>
+                </div>
+                <div class="feature-item">
+                    <h3>Quality Content</h3>
+                    <p>Access curated courses and materials from expert instructors.</p>
+                </div>
+                <div class="feature-item">
+                    <h3>Track Progress</h3>
+                    <p>Monitor your learning progress with detailed analytics.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <div class="login-container">
+                <h2 class="login-title">Sign In</h2>
+                <form class="login-form" id="loginForm">
+                    <input type="email" id="email" name="email" placeholder="Email" required>
+                    <input type="password" id="password" name="password" placeholder="Password" required>
+                    <button type="submit" class="login-btn">Sign In</button>
+                </form>
+                <div class="login-footer">
+                    <a href="#" class="forgot-password">Forgot password?</a>
+                    <span class="divider">•</span>
+                    <a href="#" class="signup-link-text">New user?</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2026 CampusBridge</p>
+    </footer>
+
+    <script>
+        let currentIndex = 0;
+        const slides = document.querySelectorAll('.carousel-slide');
+        const dots = document.querySelectorAll('.dot');
+
+        function showSlide(n) {
+            slides.forEach(slide => slide.classList.remove('active'));
+            dots.forEach(dot => dot.classList.remove('active'));
+
+            slides[n].classList.add('active');
+            dots[n].classList.add('active');
+        }
+
+        function currentSlide(n) {
+            currentIndex = n - 1;
+            showSlide(currentIndex);
+        }
+
+        function nextSlide() {
+            currentIndex = (currentIndex + 1) % slides.length;
+            showSlide(currentIndex);
+        }
+
+        function prevSlide() {
+            currentIndex = (currentIndex - 1 + slides.length) % slides.length;
+            showSlide(currentIndex);
+        }
+
+        document.getElementById('nextBtn').addEventListener('click', nextSlide);
+        document.getElementById('prevBtn').addEventListener('click', prevSlide);
+
+        // Auto-play carousel every 5 seconds
+        setInterval(nextSlide, 5000);
+
+        const loginBtn = document.getElementById('loginBtn');
+        const loginModal = document.getElementById('loginModal');
+        const closeBtn = document.querySelector('.close-btn');
+        const loginForm = document.getElementById('loginForm');
+
+        // Open modal when Sign In is clicked
+        loginBtn.addEventListener('click', function() {
+            loginModal.style.display = 'block';
+        });
+
+        // Close modal when X is clicked
+        closeBtn.addEventListener('click', function() {
+            loginModal.style.display = 'none';
+        });
+
+        // Close modal when clicking outside the modal content
+        window.addEventListener('click', function(event) {
+            if (event.target === loginModal) {
+                loginModal.style.display = 'none';
+            }
+        });
+
+        // Handle form submission
+        loginForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            alert('Login attempt with email: ' + email);
+            // Add your login logic here
+            loginModal.style.display = 'none';
+        });
+    </script>
+</body>
+</html>
