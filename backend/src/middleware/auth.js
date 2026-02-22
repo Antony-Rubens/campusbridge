@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('❌ SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not found in env');
+}
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -23,8 +27,7 @@ export async function requireAuth(req, res, next) {
     req.user = data.user;
     next();
   } catch (err) {
-    console.error('Auth error:', err);
-    console.log('SUPABASE_URL =', process.env.SUPABASE_URL);
+    console.error('Auth error:', err.message);
     res.status(401).json({ error: 'Unauthorized' });
   }
 }
