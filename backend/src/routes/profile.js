@@ -14,7 +14,7 @@ router.get('/', requireAuth, async (req, res) => {
       `SELECT 
         id, full_name, email, github_link, linkedin_id,
         department, semester, roll_number, phone,
-        skills, interests, activity_points_total,
+        skills, interests, activity_points_total, role,
         created_at, updated_at
        FROM profiles
        WHERE id = $1`,
@@ -41,16 +41,21 @@ router.post('/', requireAuth, async (req, res) => {
     const {
       full_name, github_link, linkedin_id,
       department, semester, roll_number, phone,
-      skills, interests
+      skills, interests, role
     } = req.body;
+
+    // Sanitize role — students can only self-assign student or faculty
+    // community_admin and system_admin must be assigned by system admin
+    const allowedSelfRoles = ['student', 'faculty'];
+    const assignedRole = allowedSelfRoles.includes(role) ? role : 'student';
 
     const { rows } = await pool.query(
       `INSERT INTO profiles (
         id, full_name, email, github_link, linkedin_id,
         department, semester, roll_number, phone,
-        skills, interests, activity_points_total
+        skills, interests, activity_points_total, role
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12)
        ON CONFLICT (id) DO NOTHING
        RETURNING *`,
       [
@@ -65,6 +70,7 @@ router.post('/', requireAuth, async (req, res) => {
         phone || null,
         skills || [],
         interests || [],
+        assignedRole,
       ]
     );
 
@@ -82,6 +88,7 @@ router.post('/', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────
 // PATCH /api/profile
 // Update the logged-in user's profile
+// Note: role cannot be changed by the user themselves
 // ─────────────────────────────────────────────
 router.patch('/', requireAuth, async (req, res) => {
   try {
@@ -90,6 +97,8 @@ router.patch('/', requireAuth, async (req, res) => {
       department, semester, roll_number, phone,
       skills, interests
     } = req.body;
+
+    // role is intentionally excluded — only system admin can change roles
 
     const { rows } = await pool.query(
       `UPDATE profiles SET
@@ -144,7 +153,7 @@ router.get('/search', requireAuth, async (req, res) => {
         id, full_name, email, department, semester,
         roll_number, phone, skills, interests
       FROM profiles
-      WHERE 1=1
+      WHERE role = 'student'
     `;
     const params = [];
 
