@@ -8,11 +8,25 @@ export default function Navbar() {
   const router = useRouter()
   const pathname = usePathname()
   const [user, setUser] = useState<any>(null)
+  const [profile, setProfile] = useState<any>(null)
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setUser(session?.user ?? null)
+
+        if (session?.user) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('full_name, role')
+            .eq('id', session.user.id)
+            .single()
+          setProfile(data)
+        } else {
+          setProfile(null)
+        }
+      }
+    )
     return () => subscription.unsubscribe()
   }, [])
 
@@ -21,19 +35,103 @@ export default function Navbar() {
     router.push('/')
   }
 
-  // LOGIC: If no user is logged in, OR we are on the home page, hide the navbar
-  if (!user || pathname === '/') return null;
+  if (!user || pathname === '/') return null
 
   return (
-    <nav className="bg-white border-b p-4 shadow-sm mb-6 sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto flex justify-between items-center">
-        <div className="flex space-x-8 items-center">
-          <span className="font-bold text-blue-600 text-xl">CampusBridge</span>
-          <Link href="/explore" className={`font-medium transition-colors ${pathname === '/explore' ? 'text-blue-600' : 'text-gray-600 hover:text-blue-600'}`}>Explore</Link>
-          <Link href="/discover" className="text-gray-600 hover:text-blue-600 font-medium">Discover</Link>
-          <Link href="/dashboard" className="text-gray-600 hover:text-blue-600 font-medium">My Dashboard</Link>
+    <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
+      <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+
+        {/* Left — Logo + Links */}
+        <div className="flex items-center gap-8">
+          <span className="font-extrabold text-blue-600 text-xl tracking-tight">
+            CampusBridge
+          </span>
+
+          <div className="flex items-center gap-6">
+            <Link
+              href="/explore"
+              className={`text-sm font-medium transition-colors ${
+                pathname.startsWith('/explore')
+                  ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
+                  : 'text-gray-600 hover:text-blue-600'
+              }`}
+            >
+              Explore
+            </Link>
+
+            <Link
+              href="/discover"
+              className={`text-sm font-medium transition-colors ${
+                pathname === '/discover'
+                  ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
+                  : 'text-gray-600 hover:text-blue-600'
+              }`}
+            >
+              Discover
+            </Link>
+
+            <Link
+              href="/dashboard"
+              className={`text-sm font-medium transition-colors ${
+                pathname === '/dashboard'
+                  ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
+                  : 'text-gray-600 hover:text-blue-600'
+              }`}
+            >
+              Dashboard
+            </Link>
+
+            {/* Show Activity Points link for students */}
+            {profile?.role === 'student' && (
+              <Link
+                href="/activity-points"
+                className={`text-sm font-medium transition-colors ${
+                  pathname === '/activity-points'
+                    ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
+                    : 'text-gray-600 hover:text-blue-600'
+                }`}
+              >
+                Activity Points
+              </Link>
+            )}
+
+            {/* Show Faculty panel link for faculty */}
+            {(profile?.role === 'faculty' || profile?.role === 'system_admin') && (
+              <Link
+                href="/faculty"
+                className={`text-sm font-medium transition-colors ${
+                  pathname === '/faculty'
+                    ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
+                    : 'text-gray-600 hover:text-blue-600'
+                }`}
+              >
+                Faculty Panel
+              </Link>
+            )}
+          </div>
         </div>
-        <button onClick={handleSignOut} className="text-red-500 font-semibold text-sm">Sign Out</button>
+
+        {/* Right — User info + Sign out */}
+        <div className="flex items-center gap-4">
+          {profile && (
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-semibold text-gray-800">
+                {profile.full_name || user.email}
+              </p>
+              <p className="text-xs text-gray-400 capitalize">
+                {profile.role || 'student'}
+              </p>
+            </div>
+          )}
+
+          <button
+            onClick={handleSignOut}
+            className="text-sm font-semibold text-white bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-lg transition"
+          >
+            Sign Out
+          </button>
+        </div>
+
       </div>
     </nav>
   )
