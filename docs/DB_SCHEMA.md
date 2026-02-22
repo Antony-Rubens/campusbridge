@@ -2,6 +2,7 @@
 
 This document defines the **authoritative database schema** for the CampusBridge MVP.
 All tables and relationships must align with this file.
+Last updated: February 2026
 
 ---
 
@@ -12,9 +13,15 @@ Stores user profile information linked to Supabase Auth.
 - full_name (text)
 - email (text, unique)
 - department (text)
+- semester (text)
+- roll_number (text)
+- phone (text)
 - skills (text[])
+- interests (text[])
 - github_link (text)
-- linkedin_link (text)
+- linkedin_id (text)
+- role (text) — student | faculty | community_admin | system_admin
+- activity_points_total (int, default 0)
 - created_at (timestamptz)
 - updated_at (timestamptz)
 
@@ -27,24 +34,22 @@ Represents student or departmental communities.
 - name (text)
 - type (text)
 - description (text)
+- department (text)
 - created_by (uuid, FK → profiles.id)
-- status (text)
-- instagram_url (text)
-- linkedin_url (text)
-- website_url (text)
-- logo_url (text)
+- status (text) — pending | approved | rejected
 - created_at (timestamptz)
+- updated_at (timestamptz)
 
 ---
 
-## 3. community_memberships
+## 3. community_members
 Links students to communities.
 
 - id (uuid, PK)
-- student_id (uuid, FK → profiles.id)
 - community_id (uuid, FK → communities.id)
-- is_admin (boolean)
-- status (text)
+- profile_id (uuid, FK → profiles.id)
+- role (text) — admin | member
+- joined_at (timestamptz)
 
 ---
 
@@ -53,13 +58,16 @@ Events conducted under communities.
 
 - id (uuid, PK)
 - community_id (uuid, FK → communities.id)
-- name (text)
+- title (text)
 - description (text)
+- location (text)
 - category (text)
 - event_date (timestamptz)
-- activity_points (int)
+- max_participants (int)
+- status (text) — pending | published | cancelled
 - created_by (uuid, FK → profiles.id)
 - created_at (timestamptz)
+- updated_at (timestamptz)
 
 ---
 
@@ -67,40 +75,60 @@ Events conducted under communities.
 Certificates uploaded by students for events.
 
 - id (uuid, PK)
-- student_id (uuid, FK → profiles.id)
+- profile_id (uuid, FK → profiles.id)
 - event_id (uuid, FK → events.id)
 - certificate_name (text)
 - file_url (text)
+- issued_at (timestamptz)
+- status (text) — pending | approved | rejected
 - created_at (timestamptz)
 
 ---
 
-## 6. activity_points
-Tracks activity points per student.
+## 6. ktu_rules
+Stores KTU activity point rules and limits.
 
 - id (uuid, PK)
-- student_id (uuid, FK → profiles.id)
-- event_id (uuid, FK → events.id)
+- category (text)
+- level (text)
+- role (text)
 - points (int)
-- status (text) — pending / approved / rejected
+- max_allowed (int)
+- created_at (timestamptz)
+
+---
+
+## 7. activity_point_records
+Tracks activity point submissions and approvals per student.
+
+- id (uuid, PK)
+- profile_id (uuid, FK → profiles.id)
+- certificate_id (uuid, FK → certificates.id)
+- rule_id (uuid, FK → ktu_rules.id)
+- awarded_points (int)
+- status (text) — pending | approved | rejected
 - approved_by (uuid, FK → profiles.id, nullable)
+- approval_date (timestamptz)
 - created_at (timestamptz)
 
 ---
 
 ## Relationships Summary
 - auth.users → profiles (1:1)
-- profiles → communities (1:N)
-- profiles → community_memberships (1:N)
+- profiles → community_members (1:N)
+- communities → community_members (1:N)
 - communities → events (1:N)
 - profiles → certificates (1:N)
 - events → certificates (1:N)
-- profiles → activity_points (1:N)
+- profiles → activity_point_records (1:N)
+- certificates → activity_point_records (1:1)
+- ktu_rules → activity_point_records (1:N)
 
 ---
 
 ## Notes
-- No duplicate profile tables allowed
-- No direct frontend DB access
-- Backend enforces all write operations
-- RLS optional for MVP, backend service role allowed
+- No duplicate profile tables
+- No direct frontend DB access — all writes go through backend API
+- Backend enforces all write operations via Express routes
+- Role-based access enforced in backend middleware
+- RLS optional for MVP, backend service role used for all DB access
