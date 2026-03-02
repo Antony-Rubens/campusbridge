@@ -39,7 +39,7 @@ communities to host events, and faculty to validate activity points.
 ## Features INCLUDED in MVP
 
 ### Authentication & Profile
-- Supabase Auth (Google + Magic Link)
+- Supabase Auth (Google + Magic Link) need to change to otp 
 - Automatic profile creation on first login
 - Role selection at registration (student or faculty request)
 - Profile update (name, department, semester, roll number,
