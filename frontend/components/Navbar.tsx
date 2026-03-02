@@ -2,136 +2,90 @@
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabaseclient'
+import { supabase } from '@/lib/supabase'
+
+const HIDDEN_ON = ['/', '/register-details', '/auth/handle-callback']
 
 export default function Navbar() {
   const router = useRouter()
   const pathname = usePathname()
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setUser(session?.user ?? null)
-
-        if (session?.user) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('full_name, role')
-            .eq('id', session.user.id)
-            .single()
-          setProfile(data)
-        } else {
-          setProfile(null)
-        }
-      }
-    )
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
+      if (session?.user) loadProfile(session.user.id)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null)
+      if (session?.user) loadProfile(session.user.id)
+      else setProfile(null)
+    })
     return () => subscription.unsubscribe()
   }, [])
 
-  const handleSignOut = async () => {
+  const loadProfile = async (id: string) => {
+    const { data } = await supabase.from('profiles').select('full_name, role').eq('id', id).single()
+    setProfile(data)
+  }
+
+  const signOut = async () => {
     await supabase.auth.signOut()
     router.push('/')
   }
 
-  if (!user || pathname === '/') return null
+  if (!user || HIDDEN_ON.includes(pathname)) return null
+
+  const isAdmin = profile?.role === 'system_admin'
+  const isFaculty = profile?.role === 'faculty' || isAdmin
+
+  const link = (href: string, label: string) => (
+    <Link
+      href={href}
+      onClick={() => setMenuOpen(false)}
+      className={`text-sm font-semibold transition ${
+        pathname.startsWith(href) ? 'text-blue-400' : 'text-slate-400 hover:text-white'
+      }`}
+    >
+      {label}
+    </Link>
+  )
 
   return (
-    <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
+    <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
-
-        {/* Left — Logo + Links */}
         <div className="flex items-center gap-8">
-          <span className="font-extrabold text-blue-600 text-xl tracking-tight">
-            CampusBridge
-          </span>
-
-          <div className="flex items-center gap-6">
-            <Link
-              href="/explore"
-              className={`text-sm font-medium transition-colors ${
-                pathname.startsWith('/explore')
-                  ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
-                  : 'text-gray-600 hover:text-blue-600'
-              }`}
-            >
-              Explore
-            </Link>
-
-            <Link
-              href="/discover"
-              className={`text-sm font-medium transition-colors ${
-                pathname === '/discover'
-                  ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
-                  : 'text-gray-600 hover:text-blue-600'
-              }`}
-            >
-              Discover
-            </Link>
-
-            <Link
-              href="/dashboard"
-              className={`text-sm font-medium transition-colors ${
-                pathname === '/dashboard'
-                  ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
-                  : 'text-gray-600 hover:text-blue-600'
-              }`}
-            >
-              Dashboard
-            </Link>
-
-            {/* Show Activity Points link for students */}
-            {profile?.role === 'student' && (
-              <Link
-                href="/activity-points"
-                className={`text-sm font-medium transition-colors ${
-                  pathname === '/activity-points'
-                    ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
-                    : 'text-gray-600 hover:text-blue-600'
-                }`}
-              >
-                Activity Points
-              </Link>
-            )}
-
-            {/* Show Faculty panel link for faculty */}
-            {(profile?.role === 'faculty' || profile?.role === 'system_admin') && (
-              <Link
-                href="/faculty"
-                className={`text-sm font-medium transition-colors ${
-                  pathname === '/faculty'
-                    ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
-                    : 'text-gray-600 hover:text-blue-600'
-                }`}
-              >
-                Faculty Panel
-              </Link>
-            )}
+          <Link href="/dashboard" className="font-black text-white text-lg tracking-tight">
+            Campus<span className="text-blue-400">Bridge</span>
+          </Link>
+          <div className="hidden md:flex items-center gap-5">
+            {link('/dashboard', 'Dashboard')}
+            {link('/discover', 'Discover')}
+            {link('/communities', 'Communities')}
+            {link('/certificates', 'Certificates')}
+            {link('/activity-points', 'Points')}
+            {link('/explore', 'Explore')}
+            {isFaculty && link('/faculty', 'Faculty')}
+            {isAdmin && link('/admin', 'Admin')}
           </div>
         </div>
 
-        {/* Right — User info + Sign out */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {profile && (
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-gray-800">
-                {profile.full_name || user.email}
-              </p>
-              <p className="text-xs text-gray-400 capitalize">
-                {profile.role || 'student'}
-              </p>
+              <p className="text-sm font-semibold text-white leading-tight">{profile.full_name}</p>
+              <p className="text-xs text-slate-500 capitalize">{profile.role || 'student'}</p>
             </div>
           )}
-
           <button
-            onClick={handleSignOut}
-            className="text-sm font-semibold text-white bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-lg transition"
+            onClick={signOut}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition"
           >
             Sign Out
           </button>
         </div>
-
       </div>
     </nav>
   )
