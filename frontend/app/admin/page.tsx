@@ -3,150 +3,135 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
-type Tab = 'users' | 'communities' | 'certificates'
+type Tab = 'users'|'communities'|'verifiers'
 
 export default function AdminPage() {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('users')
   const [users, setUsers] = useState<any[]>([])
   const [communities, setCommunities] = useState<any[]>([])
-  const [pendingCerts, setPendingCerts] = useState<any[]>([])
+  const [verifiers, setVerifiers] = useState<any[]>([])
+  const [facultyList, setFacultyList] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [userId, setUserId] = useState('')
+  const [newVerifier, setNewVerifier] = useState({ faculty_id:'', department:'' })
+  const DEPTS = ['CSE','ECE','EEE','ME','CE','IT','MCA','MBA']
 
   useEffect(() => {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.user) { router.push('/'); return }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .single()
-
+      setUserId(session.user.id)
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
       if (profile?.role !== 'system_admin') { router.push('/dashboard'); return }
 
-      const [usersRes, commRes, certsRes] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('communities').select('*, creator:profiles!communities_created_by_fkey(full_name)').order('created_at', { ascending: false }),
-        supabase.from('certificates').select('*, profile:profiles(full_name, department)').eq('status', 'pending').order('created_at', { ascending: false }),
+      const [usersRes, commRes, verRes] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at', { ascending:false }),
+        supabase.from('communities').select('*, creator:profiles!communities_created_by_fk(full_name)').order('created_at', { ascending:false }),
+        supabase.from('certificate_verifiers').select('*, faculty:profiles(full_name,department)'),
       ])
-
       setUsers(usersRes.data ?? [])
       setCommunities(commRes.data ?? [])
-      setPendingCerts(certsRes.data ?? [])
+      setVerifiers(verRes.data ?? [])
+      setFacultyList((usersRes.data ?? []).filter((u: any) => u.role === 'faculty'))
       setLoading(false)
     }
     load()
   }, [router])
 
-  const handleRoleChange = async (userId: string, role: string) => {
-    await supabase.from('profiles').update({ role }).eq('id', userId)
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, role } : u))
+  const changeRole = async (uid: string, role: string) => {
+    await supabase.from('profiles').update({ role }).eq('id', uid)
+    setUsers(p => p.map(u => u.id === uid ? { ...u, role } : u))
+    if (role === 'faculty') setFacultyList(p => [...p, users.find(u => u.id === uid)].filter(Boolean) as any[])
   }
 
-  const handleToggleCommunity = async (commId: string, isActive: boolean) => {
+  const toggleCommunity = async (commId: string, isActive: boolean) => {
     await supabase.from('communities').update({ is_active: !isActive }).eq('id', commId)
-    setCommunities(prev => prev.map(c => c.id === commId ? { ...c, is_active: !isActive } : c))
+    setCommunities(p => p.map(c => c.id === commId ? { ...c, is_active: !isActive } : c))
   }
 
-  const filteredUsers = users.filter(u =>
-    !search ||
-    u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    u.email?.toLowerCase().includes(search.toLowerCase()) ||
-    u.department?.toLowerCase().includes(search.toLowerCase())
-  )
+  const addVerifier = async () => {
+    if (!newVerifier.faculty_id || !newVerifier.department) return
+    const { data, error } = await supabase.from('certificate_verifiers').insert({
+      faculty_id: newVerifier.faculty_id, department: newVerifier.department, assigned_by: userId,
+    }).select('*, faculty:profiles(full_name,department)').single()
+    if (!error && data) { setVerifiers(p => [...p, data]); setNewVerifier({ faculty_id:'', department:'' }) }
+  }
 
-  if (loading) return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
+  const removeVerifier = async (vid: string) => {
+    await supabase.from('certificate_verifiers').delete().eq('id', vid)
+    setVerifiers(p => p.filter(v => v.id !== vid))
+  }
 
-  const TABS: { key: Tab; label: string; count: number }[] = [
-    { key: 'users', label: 'Users', count: users.length },
-    { key: 'communities', label: 'Communities', count: communities.length },
-    { key: 'certificates', label: 'Pending Certs', count: pendingCerts.length },
+  const filteredUsers = users.filter(u => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.department?.toLowerCase().includes(q)
+  })
+
+  if (loading) return <div className="page-loading"><div className="spinner"/></div>
+
+  const stats = [
+    { label:'Total Users', value:users.length, color:'var(--blue)' },
+    { label:'Communities', value:communities.length, color:'var(--amber)' },
+    { label:'Pending Certs', value:users.length, color:'var(--red)' },
+    { label:'Verifiers', value:verifiers.length, color:'var(--green)' },
   ]
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+    <div className="page">
+      <div className="fade-up" style={{ marginBottom:'24px' }}>
+        <h1 style={{ fontSize:'22px', fontWeight:800, color:'var(--text)', margin:'0 0 4px' }}>Admin Panel</h1>
+        <p style={{ color:'var(--text2)', fontSize:'13px', margin:0 }}>Manage users, roles, and platform settings</p>
+      </div>
 
+      <div className="fade-up-1" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'12px', marginBottom:'24px' }}>
+        {stats.map(s => (
+          <div key={s.label} className="card" style={{ padding:'16px', textAlign:'center' }}>
+            <p style={{ fontSize:'28px', fontWeight:800, color:s.color, margin:'0 0 4px', lineHeight:1 }}>{s.value}</p>
+            <p style={{ color:'var(--text3)', fontSize:'11px', margin:0 }}>{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="fade-up-2" style={{ display:'flex', gap:'8px', marginBottom:'20px' }}>
+        {(['users','communities','verifiers'] as Tab[]).map(t => (
+          <button key={t} onClick={() => setTab(t)} className={`btn btn-sm ${tab === t ? 'btn-primary' : 'btn-secondary'}`} style={{ textTransform:'capitalize' }}>{t}</button>
+        ))}
+      </div>
+
+      {tab === 'users' && (
         <div>
-          <h1 className="text-2xl font-black text-white">Admin Panel</h1>
-          <p className="text-slate-400 text-sm mt-1">Manage users, communities, and certificates</p>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            { label: 'Total Users', value: users.length, color: 'text-blue-400' },
-            { label: 'Communities', value: communities.length, color: 'text-purple-400' },
-            { label: 'Pending Review', value: pendingCerts.length, color: 'text-yellow-400' },
-          ].map(s => (
-            <div key={s.label} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-center">
-              <p className={`text-3xl font-black ${s.color}`}>{s.value}</p>
-              <p className="text-slate-500 text-xs mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit">
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${tab === t.key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              {t.label}
-              {t.count > 0 && <span className="ml-1.5 text-xs opacity-70">({t.count})</span>}
-            </button>
-          ))}
-        </div>
-
-        {/* Users Tab */}
-        {tab === 'users' && (
-          <div className="space-y-3">
-            <input
-              type="text"
-              placeholder="Search users…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="bg-slate-900 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 w-full sm:w-72"
-            />
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="border-b border-slate-800">
-                  <tr>
-                    {['Name', 'Email', 'Dept', 'Sem', 'Role', ''].map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>
+          <input className="input" placeholder="Search users…" value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth:'300px', marginBottom:'14px' }} />
+          <div className="card" style={{ overflow:'hidden' }}>
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom:'1px solid var(--border)' }}>
+                    {['Name','Email','Dept','Sem','Role','Status'].map(h => (
+                      <th key={h} style={{ textAlign:'left', padding:'12px 16px', fontSize:'11px', fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'.05em', whiteSpace:'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody>
                   {filteredUsers.map(u => (
-                    <tr key={u.id} className="hover:bg-slate-800/50 transition">
-                      <td className="px-4 py-3 text-white font-medium">{u.full_name || '—'}</td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">{u.email}</td>
-                      <td className="px-4 py-3 text-slate-400">{u.department || '—'}</td>
-                      <td className="px-4 py-3 text-slate-400">{u.semester || '—'}</td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={u.role || 'student'}
-                          onChange={e => handleRoleChange(u.id, e.target.value)}
-                          className="bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none"
-                        >
+                    <tr key={u.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                      <td style={{ padding:'12px 16px', color:'var(--text)', fontWeight:600, fontSize:'13px' }}>{u.full_name || '—'}</td>
+                      <td style={{ padding:'12px 16px', color:'var(--text2)', fontSize:'12px' }}>{u.email}</td>
+                      <td style={{ padding:'12px 16px', color:'var(--text2)', fontSize:'13px' }}>{u.department || '—'}</td>
+                      <td style={{ padding:'12px 16px', color:'var(--text2)', fontSize:'13px' }}>{u.semester ? `S${u.semester}` : '—'}</td>
+                      <td style={{ padding:'12px 16px' }}>
+                        <select value={u.role || 'student'} onChange={e => changeRole(u.id, e.target.value)}
+                          className="input" style={{ padding:'5px 8px', fontSize:'12px', width:'auto' }}>
                           <option value="student">Student</option>
                           <option value="faculty">Faculty</option>
                           <option value="community_admin">Community Admin</option>
                           <option value="system_admin">System Admin</option>
                         </select>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full ${u.is_profile_complete ? 'bg-green-500/10 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                      <td style={{ padding:'12px 16px' }}>
+                        <span className={`badge ${u.is_profile_complete ? 'badge-green' : 'badge-gray'}`}>
                           {u.is_profile_complete ? 'Complete' : 'Incomplete'}
                         </span>
                       </td>
@@ -156,67 +141,66 @@ export default function AdminPage() {
               </table>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Communities Tab */}
-        {tab === 'communities' && (
-          <div className="space-y-3">
-            {communities.map(c => (
-              <div key={c.id} className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+      {tab === 'communities' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
+          {communities.map(c => (
+            <div key={c.id} className="card" style={{ padding:'16px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px', flexWrap:'wrap' }}>
+              <div>
+                <p style={{ fontWeight:600, color:'var(--text)', fontSize:'14px', margin:'0 0 4px' }}>{c.name}</p>
+                <p style={{ color:'var(--text3)', fontSize:'12px', margin:0 }}>
+                  {c.type} · {c.category || '—'} · {c.department || 'All'} · by {c.creator?.full_name || '—'}
+                </p>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                <span className={`badge ${c.is_active ? 'badge-green' : 'badge-red'}`}>{c.is_active ? 'Active' : 'Inactive'}</span>
+                <button onClick={() => toggleCommunity(c.id, c.is_active)} className="btn btn-secondary btn-sm">
+                  {c.is_active ? 'Deactivate' : 'Activate'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'verifiers' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+          <div className="card" style={{ padding:'20px' }}>
+            <p style={{ fontWeight:700, color:'var(--text)', fontSize:'13px', margin:'0 0 14px' }}>Assign Certificate Verifier</p>
+            <div style={{ display:'flex', gap:'10px', flexWrap:'wrap', alignItems:'flex-end' }}>
+              <div>
+                <label className="label">Faculty</label>
+                <select className="input" value={newVerifier.faculty_id} onChange={e => setNewVerifier(p => ({ ...p, faculty_id:e.target.value }))} style={{ width:'200px' }}>
+                  <option value="">Select faculty</option>
+                  {facultyList.map(f => <option key={f.id} value={f.id}>{f.full_name} ({f.department})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Department</label>
+                <select className="input" value={newVerifier.department} onChange={e => setNewVerifier(p => ({ ...p, department:e.target.value }))} style={{ width:'140px' }}>
+                  <option value="">Select</option>{DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <button onClick={addVerifier} className="btn btn-primary btn-sm">Assign</button>
+            </div>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+            {verifiers.length === 0 ? (
+              <div className="empty-state"><div className="icon">👨‍🏫</div><p>No verifiers assigned yet</p></div>
+            ) : verifiers.map(v => (
+              <div key={v.id} className="card" style={{ padding:'14px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'12px' }}>
                 <div>
-                  <p className="text-white font-semibold">{c.name}</p>
-                  <p className="text-slate-500 text-xs mt-0.5">
-                    {c.category} · {c.department || 'All depts'} · by {c.creator?.full_name}
-                  </p>
+                  <p style={{ fontWeight:600, color:'var(--text)', fontSize:'13px', margin:'0 0 2px' }}>{v.faculty?.full_name}</p>
+                  <p style={{ color:'var(--text3)', fontSize:'12px', margin:0 }}>Verifies certificates for <strong style={{ color:'var(--text2)' }}>{v.department}</strong></p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs px-2 py-1 rounded-full ${c.is_active ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-                    {c.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                  <button
-                    onClick={() => handleToggleCommunity(c.id, c.is_active)}
-                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition"
-                  >
-                    {c.is_active ? 'Deactivate' : 'Activate'}
-                  </button>
-                </div>
+                <button onClick={() => removeVerifier(v.id)} className="btn btn-danger btn-sm">Remove</button>
               </div>
             ))}
           </div>
-        )}
-
-        {/* Pending Certificates Tab */}
-        {tab === 'certificates' && (
-          <div className="space-y-3">
-            {pendingCerts.length === 0 ? (
-              <div className="text-center py-16 text-slate-500">
-                <p className="text-3xl mb-2">✅</p>
-                <p>No pending certificates</p>
-              </div>
-            ) : (
-              pendingCerts.map(cert => (
-                <div key={cert.id} className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-white font-semibold text-sm">{cert.title}</p>
-                    <p className="text-slate-500 text-xs mt-0.5">
-                      {cert.profile?.full_name} · {cert.profile?.department} · {cert.activity_category}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-2 py-1 rounded-full">
-                      {cert.suggested_points} pts suggested
-                    </span>
-                    {cert.file_url && (
-                      <a href={cert.file_url} target="_blank" rel="noopener noreferrer"
-                        className="text-blue-400 text-xs hover:underline">View</a>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -4,174 +4,108 @@ import { supabase } from '@/lib/supabase'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 
-export default function ManageCommunityPage() {
+const CATS = ['Technical','Cultural','Sports','Social','Professional','Other']
+const DEPTS = ['CSE','ECE','EEE','ME','CE','IT','MCA','MBA','All Departments']
+
+export default function ManageCommunity() {
   const router = useRouter()
   const { id } = useParams() as { id: string }
-  const [community, setCommunity] = useState<any>(null)
   const [members, setMembers] = useState<any[]>([])
-  const [userId, setUserId] = useState('')
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [form, setForm] = useState({ name: '', description: '', category: '', department: '' })
-
-  const CATEGORIES = ['Technical', 'Cultural', 'Sports', 'Social', 'Professional', 'Other']
-  const DEPARTMENTS = ['CSE', 'ECE', 'EEE', 'ME', 'CE', 'IT', 'MCA', 'MBA', 'All Departments']
+  const [saved, setSaved] = useState(false)
+  const [form, setForm] = useState({ name:'', description:'', category:'', department:'' })
 
   useEffect(() => {
     if (!id) return
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.user) { router.push('/'); return }
-      setUserId(session.user.id)
 
       const { data: comm } = await supabase.from('communities').select('*').eq('id', id).single()
       if (!comm || comm.created_by !== session.user.id) { router.push('/communities'); return }
+      setForm({ name: comm.name ?? '', description: comm.description ?? '', category: comm.category ?? '', department: comm.department ?? '' })
 
-      setCommunity(comm)
-      setForm({ name: comm.name, description: comm.description ?? '', category: comm.category ?? '', department: comm.department ?? '' })
-
-      const { data: mems } = await supabase
-        .from('community_members')
-        .select('*, profile:profiles(full_name, department, role)')
-        .eq('community_id', id)
-
+      const { data: mems } = await supabase.from('community_members')
+        .select('*, profile:profiles(full_name,department,role)').eq('community_id', id)
       setMembers(mems ?? [])
-      setLoading(false)
     }
     load()
   }, [id, router])
 
-  const handleSave = async () => {
+  const set = (f: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>) =>
+    setForm(p => ({ ...p, [f]: e.target.value }))
+
+  const save = async () => {
     setSaving(true)
     const { error: err } = await supabase.from('communities').update({
-      name: form.name,
-      description: form.description || null,
-      category: form.category,
-      department: form.department || null,
-      updated_at: new Date().toISOString(),
+      name: form.name, description: form.description || null,
+      category: form.category, department: form.department || null, updated_at: new Date().toISOString(),
     }).eq('id', id)
     if (err) setError(err.message)
+    else { setSaved(true); setTimeout(() => setSaved(false), 2000) }
     setSaving(false)
   }
 
-  const handleRoleChange = async (profileId: string, role: string) => {
+  const changeRole = async (profileId: string, role: string) => {
     await supabase.from('community_members').update({ role }).eq('community_id', id).eq('profile_id', profileId)
-    setMembers(prev => prev.map(m => m.profile_id === profileId ? { ...m, role } : m))
+    setMembers(p => p.map(m => m.profile_id === profileId ? { ...m, role } : m))
   }
 
-  const handleRemoveMember = async (profileId: string) => {
+  const removeMember = async (profileId: string) => {
     await supabase.from('community_members').delete().eq('community_id', id).eq('profile_id', profileId)
-    setMembers(prev => prev.filter(m => m.profile_id !== profileId))
+    setMembers(p => p.filter(m => m.profile_id !== profileId))
   }
-
-  const set = (f: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(prev => ({ ...prev, [f]: e.target.value }))
-
-  if (loading) return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        <div>
-          <Link href={`/communities/${id}`} className="text-slate-400 hover:text-white text-sm transition block mb-3">← Back to Community</Link>
-          <h1 className="text-2xl font-black text-white">Manage Community</h1>
+    <div className="page-sm">
+      <Link href={`/communities/${id}`} className="btn btn-ghost btn-sm" style={{ marginBottom:'20px', display:'inline-flex' }}>← Back to Community</Link>
+      <h1 style={{ fontSize:'22px', fontWeight:800, color:'var(--text)', margin:'0 0 24px' }}>Manage Community</h1>
+
+      {error && <div className="error-box" style={{ marginBottom:'16px' }}>{error}</div>}
+
+      <div className="card fade-up" style={{ padding:'20px', marginBottom:'16px', display:'flex', flexDirection:'column', gap:'14px' }}>
+        <h2 style={{ margin:0, fontSize:'13px', fontWeight:700, color:'var(--text2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Details</h2>
+        <div><label className="label">Name</label><input className="input" value={form.name} onChange={set('name')} /></div>
+        <div><label className="label">Description</label>
+          <textarea className="input" value={form.description} onChange={set('description') as any} rows={3} style={{ resize:'none' }} />
         </div>
-
-        {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-xl">{error}</div>}
-
-        {/* Edit details */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <h2 className="text-white font-bold">Community Details</h2>
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1.5">Name</label>
-            <input value={form.name} onChange={set('name')}
-              className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500" />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px' }}>
+          <div><label className="label">Category</label>
+            <select className="input" value={form.category} onChange={set('category')}>
+              {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1.5">Description</label>
-            <textarea value={form.description} onChange={set('description')} rows={3}
-              className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 resize-none" />
+          <div><label className="label">Department</label>
+            <select className="input" value={form.department} onChange={set('department')}>
+              <option value="">All</option>{DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1.5">Category</label>
-              <select value={form.category} onChange={set('category')}
-                className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500">
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1.5">Department</label>
-              <select value={form.department} onChange={set('department')}
-                className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500">
-                <option value="">All</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-          </div>
-          <button onClick={handleSave} disabled={saving}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition">
-            {saving ? 'Saving…' : 'Save Changes'}
-          </button>
         </div>
+        <button onClick={save} disabled={saving} className="btn btn-primary" style={{ alignSelf:'flex-start' }}>
+          {saving ? <><span className="spinner"/>Saving…</> : saved ? '✓ Saved' : 'Save Changes'}
+        </button>
+      </div>
 
-        {/* Members */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <h2 className="text-white font-bold">Members ({members.length})</h2>
-          <div className="space-y-2">
-            {members.map(m => (
-              <div key={m.profile_id} className="flex items-center justify-between gap-3 bg-slate-800 rounded-xl px-4 py-3">
-                <div>
-                  <p className="text-white text-sm font-semibold">{m.profile?.full_name}</p>
-                  <p className="text-slate-500 text-xs">{m.profile?.department} · {m.profile?.role}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {m.profile_id !== userId && (
-                    <>
-                      <select
-                        value={m.role}
-                        onChange={e => handleRoleChange(m.profile_id, e.target.value)}
-                        className="bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none"
-                      >
-                        <option value="member">Member</option>
-                        <option value="moderator">Moderator</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                      <button
-                        onClick={() => handleRemoveMember(m.profile_id)}
-                        className="text-red-400 hover:text-red-300 text-xs px-2 py-1.5 rounded-lg hover:bg-red-900/20 transition"
-                      >
-                        Remove
-                      </button>
-                    </>
-                  )}
-                  {m.profile_id === userId && (
-                    <span className="text-xs bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-2 py-1 rounded-full">Owner</span>
-                  )}
-                </div>
+      <div className="card fade-up-1" style={{ padding:'20px' }}>
+        <h2 style={{ margin:'0 0 14px', fontSize:'13px', fontWeight:700, color:'var(--text2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Members ({members.length})</h2>
+        <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+          {members.map(m => (
+            <div key={m.profile_id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'10px', background:'var(--surface2)', borderRadius:'10px' }}>
+              <div className="avatar" style={{ width:32, height:32, fontSize:12 }}>{m.profile?.full_name?.[0]}</div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontWeight:600, color:'var(--text)', fontSize:'13px', margin:'0 0 1px' }}>{m.profile?.full_name}</p>
+                <p style={{ color:'var(--text3)', fontSize:'11px', margin:0 }}>{m.profile?.department} · {m.profile?.role}</p>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Danger zone */}
-        <div className="bg-slate-900 border border-red-500/20 rounded-2xl p-6">
-          <h2 className="text-red-400 font-bold mb-3">Danger Zone</h2>
-          <button
-            onClick={async () => {
-              if (!confirm('Are you sure? This will deactivate the community.')) return
-              await supabase.from('communities').update({ is_active: false }).eq('id', id)
-              router.push('/communities')
-            }}
-            className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 text-sm font-semibold px-4 py-2 rounded-xl transition"
-          >
-            Deactivate Community
-          </button>
+              <select value={m.role} onChange={e => changeRole(m.profile_id, e.target.value)}
+                className="input" style={{ width:'auto', padding:'5px 10px', fontSize:'12px' }}>
+                <option value="member">Member</option>
+                <option value="moderator">Moderator</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button onClick={() => removeMember(m.profile_id)} className="btn btn-danger btn-xs">Remove</button>
+            </div>
+          ))}
         </div>
       </div>
     </div>

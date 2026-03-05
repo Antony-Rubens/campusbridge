@@ -1,206 +1,118 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { supabase } from '../../lib/supabaseclient'
 
 export default function FacultyPage() {
   const router = useRouter()
-  const [submissions, setSubmissions] = useState<any[]>([])
+  const [userId, setUserId] = useState('')
+  const [certs, setCerts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [overrides, setOverrides] = useState<Record<string, number>>({})
-  const [processing, setProcessing] = useState<string | null>(null)
+  const [remarks, setRemarks] = useState<Record<string,string>>({})
+  const [points, setPoints] = useState<Record<string,string>>({})
+  const [processing, setProcessing] = useState<string|null>(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/'); return }
+      if (!session?.user) { router.push('/'); return }
+      setUserId(session.user.id)
 
-      const token = session.access_token
-      const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000'
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
+      if (!['faculty','system_admin'].includes(profile?.role)) { router.push('/dashboard'); return }
 
-      try {
-        // Check role first
-        const profileRes = await fetch(`${BACKEND}/api/profile`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const profileData = await profileRes.json()
-
-        if (!['faculty', 'system_admin'].includes(profileData.role)) {
-          router.push('/dashboard')
-          return
-        }
-
-        // Fetch pending submissions
-        const res = await fetch(`${BACKEND}/api/activity-points/pending`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const data = await res.json()
-        setSubmissions(data)
-      } catch (err) {
-        console.error('Failed to load submissions:', err)
-      } finally {
-        setLoading(false)
-      }
+      const { data } = await supabase.from('certificates')
+        .select('*, profile:profiles(full_name,department,semester,admission_no)')
+        .eq('status', 'pending')
+        .order('created_at')
+      setCerts(data ?? [])
+      const initPts: Record<string,string> = {}
+      data?.forEach((c: any) => { initPts[c.id] = String(c.suggested_points ?? 0) })
+      setPoints(initPts)
+      setLoading(false)
     }
     load()
   }, [router])
 
-  const handleDecision = async (id: string, status: 'approved' | 'rejected') => {
-    setProcessing(id)
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-
-      const token = session.access_token
-      const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000'
-
-      const res = await fetch(`${BACKEND}/api/activity-points/${id}/approve`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status,
-          awarded_points: overrides[id] || undefined,
-        }),
-      })
-
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Failed to process')
-      }
-
-      // Remove from pending list
-      setSubmissions(prev => prev.filter(s => s.id !== id))
-    } catch (err: any) {
-      alert(err.message || 'Something went wrong')
-    } finally {
-      setProcessing(null)
+  const handleReview = async (certId: string, status: 'approved'|'rejected') => {
+    setProcessing(certId); setError('')
+    const awarded = parseInt(points[certId] ?? '0') || 0
+    const { error: err } = await supabase.from('certificates').update({
+      status, awarded_points: awarded,
+      faculty_remarks: remarks[certId] || null,
+      reviewed_by: userId, reviewed_at: new Date().toISOString(),
+    }).eq('id', certId)
+    if (err) { setError(err.message); setProcessing(null); return }
+    if (status === 'approved' && certs.find(c => c.id === certId)?.file_url) {
+      const fileUrl = certs.find(c => c.id === certId)?.file_url ?? ''
+      const path = fileUrl.split('/certificates/')[1]
+      if (path) await supabase.storage.from('certificates').remove([path])
     }
+    setCerts(p => p.filter(c => c.id !== certId))
+    setProcessing(null)
   }
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <p className="text-gray-500">Loading submissions...</p>
-    </div>
-  )
+  if (loading) return <div className="page-loading"><div className="spinner"/></div>
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-10">
-
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-blue-600">Faculty Panel</h1>
-        <p className="text-gray-500 mt-1">
-          Review and approve student activity point submissions
-        </p>
+    <div className="page">
+      <div className="fade-up" style={{ marginBottom:'24px' }}>
+        <h1 style={{ fontSize:'22px', fontWeight:800, color:'var(--text)', margin:'0 0 4px' }}>Faculty Review Panel</h1>
+        <p style={{ color:'var(--text2)', fontSize:'13px', margin:0 }}>{certs.length} certificates pending review</p>
       </div>
-
-      {/* Count */}
-      <div className="bg-white border rounded-xl p-4 shadow-sm mb-6 inline-block">
-        <p className="text-sm text-gray-500">
-          Pending submissions:
-          <span className="ml-2 font-bold text-yellow-500 text-lg">
-            {submissions.length}
-          </span>
-        </p>
-      </div>
-
-      {/* Submissions */}
-      {submissions.length === 0 ? (
-        <div className="text-center py-20 border-2 border-dashed rounded-xl">
-          <p className="text-gray-400 text-lg">No pending submissions.</p>
-          <p className="text-gray-300 text-sm mt-1">
-            All caught up! Check back later.
-          </p>
-        </div>
+      {error && <div className="error-box fade-up" style={{ marginBottom:'16px' }}>{error}</div>}
+      {certs.length === 0 ? (
+        <div className="empty-state fade-up"><div className="icon">✅</div><p>All certificates reviewed — nothing pending</p></div>
       ) : (
-        <div className="space-y-4">
-          {submissions.map((sub) => (
-            <div
-              key={sub.id}
-              className="bg-white border rounded-2xl p-6 shadow-sm"
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                {/* Student Info */}
+        <div className="fade-up-1" style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+          {certs.map(cert => (
+            <div key={cert.id} className="card" style={{ padding:'20px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'14px', gap:'12px', flexWrap:'wrap' }}>
                 <div>
-                  <p className="text-xs text-gray-400 uppercase font-semibold mb-2">
-                    Student
+                  <div style={{ display:'flex', gap:'6px', marginBottom:'6px', flexWrap:'wrap' }}>
+                    <span className="badge badge-gray">{cert.activity_category}</span>
+                    <span className="badge badge-gray">{cert.activity_level}</span>
+                    <span className="badge badge-gray">{cert.activity_role}</span>
+                  </div>
+                  <p style={{ fontWeight:700, color:'var(--text)', fontSize:'15px', margin:'0 0 4px' }}>{cert.title}</p>
+                  <p style={{ color:'var(--text2)', fontSize:'13px', margin:'0 0 2px' }}>
+                    {cert.profile?.full_name} · {cert.profile?.department} S{cert.profile?.semester}
+                    {cert.profile?.admission_no ? ` · ${cert.profile.admission_no}` : ''}
                   </p>
-                  <p className="font-bold text-gray-800">{sub.full_name}</p>
-                  <p className="text-sm text-gray-500">{sub.email}</p>
-                  <p className="text-sm text-gray-500">
-                    {sub.department} {sub.roll_number && `· ${sub.roll_number}`}
-                  </p>
+                  {cert.description && <p style={{ color:'var(--text3)', fontSize:'12px', margin:'4px 0 0', fontStyle:'italic' }}>"{cert.description}"</p>}
+                  <p style={{ color:'var(--text3)', fontSize:'11px', margin:'6px 0 0' }}>Submitted {new Date(cert.created_at).toLocaleDateString('en-IN')}</p>
                 </div>
-
-                {/* Certificate Info */}
-                <div>
-                  <p className="text-xs text-gray-400 uppercase font-semibold mb-2">
-                    Certificate
-                  </p>
-                  <p className="font-bold text-gray-800">{sub.certificate_name}</p>
-                  <p className="text-sm text-gray-500">
-                    {sub.category} / {sub.level} / {sub.role}
-                  </p>
-                  <p className="text-sm font-semibold text-blue-600">
-                    Rule points: {sub.rule_points}
-                  </p>
-                  {sub.file_url && (
-                    <a
-                      href={sub.file_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-blue-500 hover:underline mt-1 inline-block"
-                    >
-                      View Certificate →
-                    </a>
+                <div style={{ textAlign:'right' }}>
+                  <p style={{ color:'var(--text2)', fontSize:'11px', margin:'0 0 2px' }}>Suggested</p>
+                  <p style={{ color:'var(--amber)', fontSize:'24px', fontWeight:800, margin:0, lineHeight:1 }}>{cert.suggested_points}</p>
+                  {cert.file_url && (
+                    <a href={cert.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-xs" style={{ marginTop:'8px', display:'inline-flex' }}>View File</a>
                   )}
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600 font-medium">
-                    Override points:
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    placeholder={String(sub.rule_points)}
-                    className="w-20 p-2 border rounded-lg text-sm text-center"
-                    value={overrides[sub.id] || ''}
-                    onChange={(e) => setOverrides(prev => ({
-                      ...prev,
-                      [sub.id]: parseInt(e.target.value)
-                    }))}
-                  />
+              <div style={{ display:'flex', gap:'12px', flexWrap:'wrap', alignItems:'flex-end', paddingTop:'14px', borderTop:'1px solid var(--border)' }}>
+                <div>
+                  <label className="label">Awarded Points</label>
+                  <input type="number" min="0" max="100" className="input"
+                    value={points[cert.id] ?? ''} onChange={e => setPoints(p => ({ ...p, [cert.id]: e.target.value }))}
+                    style={{ width:'100px' }} />
                 </div>
-
-                <button
-                  onClick={() => handleDecision(sub.id, 'approved')}
-                  disabled={processing === sub.id}
-                  className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-600 transition disabled:opacity-50"
-                >
-                  {processing === sub.id ? 'Processing...' : '✓ Approve'}
-                </button>
-
-                <button
-                  onClick={() => handleDecision(sub.id, 'rejected')}
-                  disabled={processing === sub.id}
-                  className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-600 transition disabled:opacity-50"
-                >
-                  {processing === sub.id ? 'Processing...' : '✗ Reject'}
-                </button>
-
-                <p className="text-xs text-gray-400">
-                  Submitted {new Date(sub.created_at).toLocaleDateString()}
-                </p>
+                <div style={{ flex:1, minWidth:'200px' }}>
+                  <label className="label">Remarks (optional)</label>
+                  <input className="input" placeholder="Note for the student…"
+                    value={remarks[cert.id] ?? ''} onChange={e => setRemarks(p => ({ ...p, [cert.id]: e.target.value }))} />
+                </div>
+                <div style={{ display:'flex', gap:'8px' }}>
+                  <button onClick={() => handleReview(cert.id, 'approved')} disabled={!!processing}
+                    className="btn btn-sm" style={{ background:'var(--green-dim)', color:'var(--green)', border:'1px solid rgba(16,185,129,.2)' }}>
+                    {processing === cert.id ? <span className="spinner"/> : '✓ Approve'}
+                  </button>
+                  <button onClick={() => handleReview(cert.id, 'rejected')} disabled={!!processing} className="btn btn-danger btn-sm">
+                    ✕ Reject
+                  </button>
+                </div>
               </div>
             </div>
           ))}

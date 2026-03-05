@@ -3,189 +3,215 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
-const DEPARTMENTS = ['CSE', 'ECE', 'EEE', 'ME', 'CE', 'IT', 'MCA', 'MBA', 'Other']
+const DEPTS = ['CSE', 'ECE', 'EEE', 'ME', 'CE', 'IT', 'MCA', 'MBA']
 const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8]
+const SKILLS = ['React', 'Node.js', 'Python', 'Java', 'C++', 'Machine Learning', 'UI/UX', 'Data Science', 'Flutter', 'Android', 'iOS', 'DevOps', 'Blockchain', 'Cybersecurity']
+const INTERESTS = ['Hackathons', 'Open Source', 'Research', 'Entrepreneurship', 'Sports', 'Arts', 'Music', 'Gaming', 'Robotics', 'Photography', 'Writing', 'Social Work']
 
 export default function RegisterDetails() {
   const router = useRouter()
+  const [userId, setUserId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [userEmail, setUserEmail] = useState('')
-  const [userId, setUserId] = useState('')
+  const [facultyList, setFacultyList] = useState<any[]>([])
   const [form, setForm] = useState({
-    full_name: '',
-    department: '',
-    semester: '',
-    skills: '',
-    interests: '',
-    github_link: '',
-    linkedin_id: '',
+    full_name: '', department: '', semester: '', batch: '',
+    admission_no: '', github_link: '', linkedin_id: '', faculty_coordinator_id: '',
   })
+  const [skills, setSkills] = useState<string[]>([])
+  const [interests, setInterests] = useState<string[]>([])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.user) { router.push('/'); return }
-      setUserEmail(session.user.email ?? '')
       setUserId(session.user.id)
-      const name = session.user.user_metadata?.full_name ?? ''
-      if (name) setForm(f => ({ ...f, full_name: name }))
     })
   }, [router])
 
+  // Load faculty coordinators when department+semester selected
+  useEffect(() => {
+    if (!form.department || !form.semester) return
+    const loadFaculty = async () => {
+      // Get class community for this dept+semester
+      const { data: comm } = await supabase
+        .from('communities')
+        .select('id, faculty_coordinator')
+        .eq('type', 'class')
+        .eq('department', form.department)
+        .eq('semester', parseInt(form.semester))
+        .single()
+
+      if (comm?.faculty_coordinator) {
+        const { data: fac } = await supabase
+          .from('profiles')
+          .select('id, full_name, department')
+          .eq('id', comm.faculty_coordinator)
+        setFacultyList(fac ?? [])
+      } else {
+        // Fall back: show all faculty
+        const { data: facs } = await supabase
+          .from('profiles')
+          .select('id, full_name, department')
+          .eq('role', 'faculty')
+          .order('full_name')
+        setFacultyList(facs ?? [])
+      }
+    }
+    loadFaculty()
+  }, [form.department, form.semester])
+
+  const set = (f: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm(p => ({ ...p, [f]: e.target.value }))
+
+  const toggle = (list: string[], setList: (v: string[]) => void, val: string) =>
+    setList(list.includes(val) ? list.filter(x => x !== val) : [...list, val])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
-
-    if (!form.full_name.trim()) { setError('Full name is required'); return }
-    if (!form.department) { setError('Please select department'); return }
-    if (!form.semester) { setError('Please select semester'); return }
-    if (!userId) { setError('Not signed in. Please go back and sign in again.'); return }
-
-    setLoading(true)
-
-    const { error: err } = await supabase
-      .from('profiles')
-      .upsert({
-        id: userId,
-        email: userEmail,
-        full_name: form.full_name.trim(),
-        department: form.department,
-        semester: parseInt(form.semester),
-        skills: form.skills.split(',').map(s => s.trim()).filter(Boolean),
-        interests: form.interests.split(',').map(s => s.trim()).filter(Boolean),
-        github_link: form.github_link.trim() || null,
-        linkedin_id: form.linkedin_id.trim() || null,
-        role: 'student',
-        is_profile_complete: true,
-        updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'id'
-      })
-
-    if (err) {
-      setError(`Save failed: ${err.message} (${err.code})`)
-      setLoading(false)
-      return
+    if (!form.full_name.trim() || !form.department || !form.semester) {
+      setError('Name, department and semester are required'); return
     }
-
+    setLoading(true)
+    const { error: err } = await supabase.from('profiles').upsert({
+      id: userId,
+      full_name: form.full_name.trim(),
+      department: form.department,
+      semester: parseInt(form.semester),
+      batch: form.batch || null,
+      admission_no: form.admission_no || null,
+      github_link: form.github_link || null,
+      linkedin_id: form.linkedin_id || null,
+      faculty_coordinator_id: form.faculty_coordinator_id || null,
+      skills, interests,
+      is_profile_complete: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' })
+    if (err) { setError(err.message); setLoading(false); return }
     router.push('/dashboard')
   }
 
-  const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm(f => ({ ...f, [field]: e.target.value }))
-
   return (
-    <div className="min-h-screen bg-slate-950 flex items-start justify-center pt-8 px-4 pb-16">
-      <div className="w-full max-w-xl">
-        <div className="mb-8">
-          <h1 className="text-2xl font-black text-white">Complete Your Profile</h1>
-          <p className="text-slate-400 text-sm mt-1">Signed in as <span className="text-white">{userEmail}</span></p>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '32px 24px' }}>
+      <div style={{ maxWidth: '560px', margin: '0 auto' }}>
+        <div className="fade-up" style={{ marginBottom: '28px' }}>
+          <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text)', margin: '0 0 4px' }}>Complete your profile</h1>
+          <p style={{ color: 'var(--text2)', fontSize: '13px', margin: 0 }}>Set up once — used across the platform</p>
         </div>
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-xl mb-6">
-            {error}
-          </div>
-        )}
+        {error && <div className="error-box fade-up" style={{ marginBottom: '16px' }}>{error}</div>}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Basic info */}
+          <div className="card fade-up-1" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Basic Info</h3>
             <div>
-              <label className="block text-sm font-semibold text-slate-300 mb-2">
-                Full Name <span className="text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Yesudas M. P"
-                value={form.full_name}
-                onChange={set('full_name')}
-                className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-              />
+              <label className="label">Full Name *</label>
+              <input className="input" placeholder="e.g. Rahul Menon" value={form.full_name} onChange={set('full_name')} />
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
-                <label className="block text-sm font-semibold text-slate-300 mb-2">
-                  Department <span className="text-red-400">*</span>
-                </label>
-                <select
-                  value={form.department}
-                  onChange={set('department')}
-                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-                >
+                <label className="label">Department *</label>
+                <select className="input" value={form.department} onChange={set('department')}>
                   <option value="">Select</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-300 mb-2">
-                  Semester <span className="text-red-400">*</span>
-                </label>
-                <select
-                  value={form.semester}
-                  onChange={set('semester')}
-                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-                >
+                <label className="label">Semester *</label>
+                <select className="input" value={form.semester} onChange={set('semester')}>
                   <option value="">Select</option>
-                  {SEMESTERS.map(s => <option key={s} value={s}>Semester {s}</option>)}
+                  {SEMESTERS.map(s => <option key={s} value={s}>S{s}</option>)}
                 </select>
               </div>
             </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-300 mb-2">Skills</label>
-              <input
-                type="text"
-                placeholder="Python, React, Public Speaking"
-                value={form.skills}
-                onChange={set('skills')}
-                className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-              />
-              <p className="text-xs text-slate-500 mt-1">Separate with commas</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-300 mb-2">Interests</label>
-              <input
-                type="text"
-                placeholder="AI, Robotics, Music, Sports"
-                value={form.interests}
-                onChange={set('interests')}
-                className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-              />
-              <p className="text-xs text-slate-500 mt-1">Separate with commas</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
-                <label className="block text-sm font-semibold text-slate-300 mb-2">GitHub URL</label>
-                <input
-                  type="url"
-                  placeholder="https://github.com/username"
-                  value={form.github_link}
-                  onChange={set('github_link')}
-                  className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-                />
+                <label className="label">Batch</label>
+                <input className="input" placeholder="2022-2026" value={form.batch} onChange={set('batch')} />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-300 mb-2">LinkedIn ID</label>
-                <input
-                  type="text"
-                  placeholder="your-linkedin-id"
-                  value={form.linkedin_id}
-                  onChange={set('linkedin_id')}
-                  className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-                />
+                <label className="label">Admission No.</label>
+                <input className="input" placeholder="AISAT22CS001" value={form.admission_no} onChange={set('admission_no')} />
               </div>
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading || !userId}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-4 text-sm transition"
-          >
-            {loading ? 'Saving…' : 'Complete Registration →'}
+          {/* Faculty coordinator */}
+          <div className="card fade-up-2" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <h3 style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Faculty Coordinator</h3>
+              <p style={{ color: 'var(--text3)', fontSize: '12px', margin: 0 }}>
+                Your faculty coordinator reviews and approves your activity point certificates. You can change this anytime.
+              </p>
+            </div>
+            {!form.department || !form.semester ? (
+              <p style={{ color: 'var(--text3)', fontSize: '13px', margin: 0, fontStyle: 'italic' }}>
+                Select your department and semester above to see available coordinators
+              </p>
+            ) : facultyList.length === 0 ? (
+              <p style={{ color: 'var(--text3)', fontSize: '13px', margin: 0 }}>
+                No faculty coordinator assigned to your class yet — admin will assign one soon
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {facultyList.map(f => (
+                  <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: form.faculty_coordinator_id === f.id ? 'var(--amber-dim)' : 'var(--surface2)', border: `1px solid ${form.faculty_coordinator_id === f.id ? 'var(--amber-border)' : 'var(--border)'}`, borderRadius: '10px', cursor: 'pointer', transition: 'all .15s' }}>
+                    <input type="radio" name="faculty" value={f.id} checked={form.faculty_coordinator_id === f.id}
+                      onChange={set('faculty_coordinator_id')} style={{ accentColor: 'var(--amber)' }} />
+                    <div className="avatar" style={{ width: 32, height: 32, fontSize: 13 }}>{f.full_name?.[0]}</div>
+                    <div>
+                      <p style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px', margin: '0 0 1px' }}>{f.full_name}</p>
+                      <p style={{ color: 'var(--text3)', fontSize: '11px', margin: 0 }}>{f.department} · Faculty</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Skills */}
+          <div className="card fade-up-2" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Skills</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {SKILLS.map(s => (
+                <button key={s} type="button" onClick={() => toggle(skills, setSkills, s)}
+                  className={`badge ${skills.includes(s) ? 'badge-amber' : 'badge-gray'}`}
+                  style={{ cursor: 'pointer', padding: '5px 12px', fontSize: '12px' }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Interests */}
+          <div className="card fade-up-3" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Interests</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {INTERESTS.map(i => (
+                <button key={i} type="button" onClick={() => toggle(interests, setInterests, i)}
+                  className={`badge ${interests.includes(i) ? 'badge-blue' : 'badge-gray'}`}
+                  style={{ cursor: 'pointer', padding: '5px 12px', fontSize: '12px' }}>
+                  {i}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Links */}
+          <div className="card fade-up-3" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Links (optional)</h3>
+            <div>
+              <label className="label">GitHub URL</label>
+              <input className="input" placeholder="https://github.com/username" value={form.github_link} onChange={set('github_link')} />
+            </div>
+            <div>
+              <label className="label">LinkedIn Username</label>
+              <input className="input" placeholder="rahul-menon-abc123" value={form.linkedin_id} onChange={set('linkedin_id')} />
+            </div>
+          </div>
+
+          <button type="submit" disabled={loading || !userId} className="btn btn-primary" style={{ width: '100%', padding: '12px' }}>
+            {loading ? <><span className="spinner" />Saving…</> : 'Save & Continue →'}
           </button>
         </form>
       </div>
