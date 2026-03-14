@@ -1,152 +1,301 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
 
-const SKILLS = ['React','Node.js','Python','Java','C++','Machine Learning','UI/UX','Data Science','Flutter','Android','iOS','DevOps','Blockchain','Cybersecurity']
-const INTERESTS = ['Hackathons','Open Source','Research','Entrepreneurship','Sports','Arts','Music','Gaming','Robotics','Photography','Writing','Social Work']
+import { useEffect, useState } from 'react'
+import { supabase, SKILLS_LIST } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
 
-export default function ProfilePage() {
-  const router = useRouter()
-  const [userId, setUserId] = useState('')
+export default function Page() {
+  const [profile, setProfile] = useState<any>(null)
+  const [facultyList, setFacultyList] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
-  const [facultyList, setFacultyList] = useState<any[]>([])
-  const [form, setForm] = useState<any>({})
-  const [skills, setSkills] = useState<string[]>([])
-  const [interests, setInterests] = useState<string[]>([])
+
+  // Editable fields
+  const [github, setGithub] = useState('')
+  const [linkedin, setLinkedin] = useState('')
+  const [phone, setPhone] = useState('')
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([])
+  const [facultyCoordinatorId, setFacultyCoordinatorId] = useState('')
 
   useEffect(() => {
     const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) { router.push('/'); return }
-      setUserId(session.user.id)
-      const { data: p } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
-      if (p) {
-        setForm(p)
-        setSkills(p.skills ?? [])
-        setInterests(p.interests ?? [])
-        if (p.department && p.semester) loadFaculty(p.department, p.semester)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('*, departments(name, code), batches!profiles_batch_id_fkey(name, scheme), faculty_coordinator:faculty_coordinator_id(id, full_name)')
+        .eq('id', user.id)
+        .single()
+
+      setProfile(prof)
+      setGithub(prof?.github_url || '')
+      setLinkedin(prof?.linkedin_url || '')
+      setPhone(prof?.phone || '')
+      setSelectedSkills(prof?.skills || [])
+      setFacultyCoordinatorId(prof?.faculty_coordinator_id || '')
+
+      // Only load faculty list for students
+      if (prof?.role === 'student') {
+        const { data: fac } = await supabase
+          .from('profiles')
+          .select('id, full_name, departments(name)')
+          .eq('role', 'faculty')
+          .order('full_name')
+        setFacultyList(fac || [])
       }
+
       setLoading(false)
     }
     load()
-  }, [router])
+  }, [])
 
-  const loadFaculty = async (dept: string, sem: number) => {
-    const { data: comm } = await supabase.from('communities').select('faculty_coordinator')
-      .eq('type', 'class').eq('department', dept).eq('semester', sem).single()
-    if (comm?.faculty_coordinator) {
-      const { data } = await supabase.from('profiles').select('id,full_name,department').eq('id', comm.faculty_coordinator)
-      setFacultyList(data ?? [])
-    } else {
-      const { data } = await supabase.from('profiles').select('id,full_name,department').eq('role', 'faculty').order('full_name')
-      setFacultyList(data ?? [])
+  const toggleSkill = (s: string) => {
+    setSelectedSkills(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
+  }
+
+  const handleSave = async () => {
+    setSaving(true); setError(''); setSaved(false)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      const updates: any = {
+        github_url: github || null,
+        linkedin_url: linkedin || null,
+        phone: phone || null,
+      }
+
+      // Only students can update skills and coordinator
+      if (profile?.role === 'student') {
+        updates.skills = selectedSkills
+        updates.faculty_coordinator_id = facultyCoordinatorId || null
+      }
+
+      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+      if (error) throw error
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e: any) {
+      setError(e.message || 'Save failed')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const toggle = (list: string[], setList: (v: string[]) => void, val: string) =>
-    setList(list.includes(val) ? list.filter(x => x !== val) : [...list, val])
+  if (loading) return (
+    <div className="page-wrapper"><Sidebar />
+      <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="spinner" />
+      </main>
+    </div>
+  )
 
-  const save = async () => {
-    setSaving(true); setError('')
-    const { error: err } = await supabase.from('profiles').update({
-      github_link: form.github_link || null,
-      linkedin_id: form.linkedin_id || null,
-      faculty_coordinator_id: form.faculty_coordinator_id || null,
-      skills, interests,
-      updated_at: new Date().toISOString(),
-    }).eq('id', userId)
-    if (err) setError(err.message)
-    else { setSaved(true); setTimeout(() => setSaved(false), 2000) }
-    setSaving(false)
-  }
-
-  if (loading) return <div className="page-loading"><div className="spinner" /></div>
+  const isStudent = profile?.role === 'student'
+  const isFaculty = profile?.role === 'faculty'
+  const isAdmin = profile?.role === 'system_admin'
 
   return (
-    <div className="page-sm">
-      <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text)', margin: '0 0 4px' }}>My Profile</h1>
-      <p style={{ color: 'var(--text2)', fontSize: '13px', margin: '0 0 24px' }}>Update your coordinator, skills and links</p>
-      {error && <div className="error-box" style={{ marginBottom: '16px' }}>{error}</div>}
+    <div className="page-wrapper">
+      <Sidebar />
+      <main className="main-content">
+        <div className="page-header">
+          <h1 className="page-title">Profile</h1>
+          <p className="page-subtitle">
+            {isAdmin ? 'System Administrator' : isFaculty ? 'Faculty Coordinator' : 'Student Profile'}
+          </p>
+        </div>
 
-      {/* Faculty coordinator */}
-      <div className="card fade-up" style={{ padding: '20px', marginBottom: '16px' }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Faculty Coordinator</h3>
-        <p style={{ color: 'var(--text3)', fontSize: '12px', margin: '0 0 14px' }}>
-          This faculty member reviews your activity point certificates. Change anytime.
-        </p>
-        {facultyList.length === 0 ? (
-          <p style={{ color: 'var(--text3)', fontSize: '13px' }}>No faculty assigned to your class community yet</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {facultyList.map(f => (
-              <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: form.faculty_coordinator_id === f.id ? 'var(--amber-dim)' : 'var(--surface2)', border: `1px solid ${form.faculty_coordinator_id === f.id ? 'var(--amber-border)' : 'var(--border)'}`, borderRadius: '10px', cursor: 'pointer', transition: 'all .15s' }}>
-                <input type="radio" name="fac" value={f.id} checked={form.faculty_coordinator_id === f.id}
-                  onChange={e => setForm((p: any) => ({ ...p, faculty_coordinator_id: e.target.value }))}
-                  style={{ accentColor: 'var(--amber)' }} />
-                <div className="avatar" style={{ width: 32, height: 32, fontSize: 13 }}>{f.full_name?.[0]}</div>
-                <div>
-                  <p style={{ fontWeight: 600, color: 'var(--text)', fontSize: '13px', margin: '0 0 1px' }}>{f.full_name}</p>
-                  <p style={{ color: 'var(--text3)', fontSize: '11px', margin: 0 }}>{f.department} · Faculty</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '20px', maxWidth: '860px' }}>
+          <div>
+            {/* Read-only academic info */}
+            <div className="card" style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-3)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>
+                Account Info <span style={{ color: 'var(--text-3)', fontWeight: '400', textTransform: 'none', letterSpacing: 0 }}>(set by admin)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                {[
+                  { label: 'Full Name', val: profile?.full_name },
+                  { label: 'Email', val: profile?.email },
+                  { label: 'Role', val: profile?.role?.replace('_', ' ') },
+                  { label: 'Department', val: profile?.departments?.name },
+                  ...(isStudent ? [
+                    { label: 'Roll Number', val: profile?.roll_number },
+                    { label: 'Semester', val: profile?.semester ? `S${profile.semester}` : null },
+                    { label: 'Batch', val: profile?.batches?.name },
+                    { label: 'KTU Scheme', val: profile?.batches?.scheme ? `${profile.batches.scheme} Scheme` : null },
+                  ] : []),
+                ].filter(x => x.val).map(({ label, val }) => (
+                  <div key={label}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-3)', marginBottom: '2px' }}>{label}</div>
+                    <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)', textTransform: 'capitalize' }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Contact & Links — all roles */}
+            <div className="card" style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-3)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>
+                Contact & Links
+              </div>
+              <div className="input-group">
+                <label className="input-label">Phone Number</label>
+                <input className="input" placeholder="+91 XXXXX XXXXX" value={phone} onChange={e => setPhone(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">GitHub URL</label>
+                <input className="input" placeholder="https://github.com/username" value={github} onChange={e => setGithub(e.target.value)} />
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label">LinkedIn Username</label>
+                <input className="input" placeholder="e.g. antony-rubens" value={linkedin} onChange={e => setLinkedin(e.target.value)} />
+              </div>
+            </div>
+
+            {/* Faculty coordinator picker — students only */}
+            {isStudent && (
+              <div className="card" style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-3)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
+                  Faculty Coordinator
                 </div>
-                {form.faculty_coordinator_id === f.id && (
-                  <span className="badge badge-amber" style={{ marginLeft: 'auto' }}>Selected</span>
+                <p style={{ fontSize: '12px', color: 'var(--text-3)', marginBottom: '12px' }}>
+                  Your coordinator reviews and approves your certificates.
+                </p>
+                {facultyList.length === 0 ? (
+                  <div style={{ fontSize: '13px', color: 'var(--text-3)' }}>
+                    No faculty accounts found. Ask your admin to add faculty users.
+                  </div>
+                ) : (
+                  <select className="input" value={facultyCoordinatorId} onChange={e => setFacultyCoordinatorId(e.target.value)}>
+                    <option value="">Select faculty coordinator</option>
+                    {facultyList.map(f => (
+                      <option key={f.id} value={f.id}>
+                        {f.full_name}{f.departments?.name ? ` — ${f.departments.name}` : ''}
+                      </option>
+                    ))}
+                  </select>
                 )}
-              </label>
-            ))}
+              </div>
+            )}
+
+            {/* Skills — students only */}
+            {isStudent && (
+              <>
+                {Object.entries(SKILLS_LIST).map(([cat, items]) => (
+                  <div key={cat} className="card" style={{ marginBottom: '14px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-3)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>
+                      {cat}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {items.map((s: string) => {
+                        const active = selectedSkills.includes(s)
+                        return (
+                          <button key={s} onClick={() => toggleSkill(s)} style={{
+                            padding: '4px 12px', borderRadius: '99px', fontSize: '12px', fontWeight: '500',
+                            cursor: 'pointer', fontFamily: 'Sora, sans-serif',
+                            border: `1px solid ${active ? '#4f8ef740' : 'var(--border)'}`,
+                            background: active ? 'var(--accent-glow)' : 'var(--bg-3)',
+                            color: active ? 'var(--accent)' : 'var(--text-2)',
+                            transition: 'all 0.12s',
+                          }}>{s}</button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {error && (
+              <div style={{ background: 'var(--red-glow)', border: '1px solid #f8717120', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: '13px', color: 'var(--red)', marginBottom: '16px' }}>
+                {error}
+              </div>
+            )}
+
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              {saving
+                ? <><div className="spinner" style={{ width: '14px', height: '14px' }} /> Saving...</>
+                : saved ? '✓ Saved!' : 'Save Changes'
+              }
+            </button>
           </div>
-        )}
-      </div>
 
-      {/* Skills */}
-      <div className="card fade-up-1" style={{ padding: '20px', marginBottom: '16px' }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Skills</h3>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {SKILLS.map(s => (
-            <button key={s} type="button" onClick={() => toggle(skills, setSkills, s)}
-              className={`badge ${skills.includes(s) ? 'badge-amber' : 'badge-gray'}`}
-              style={{ cursor: 'pointer', padding: '5px 12px', fontSize: '12px' }}>
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
+          {/* Right sidebar summary */}
+          <div>
+            <div className="card" style={{ position: 'sticky', top: '20px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                <div style={{
+                  width: '60px', height: '60px', borderRadius: '50%',
+                  background: isAdmin ? '#a78bfa20' : isFaculty ? 'var(--green-glow)' : 'var(--accent-glow)',
+                  color: isAdmin ? 'var(--purple)' : isFaculty ? 'var(--green)' : 'var(--accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '24px', fontWeight: '700', margin: '0 auto 12px',
+                }}>
+                  {profile?.full_name?.charAt(0)}
+                </div>
+                <div style={{ fontSize: '15px', fontWeight: '700' }}>{profile?.full_name}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>{profile?.email}</div>
+                <div style={{ marginTop: '6px' }}>
+                  <span className={`badge ${isAdmin ? 'badge-purple' : isFaculty ? 'badge-green' : 'badge-blue'}`}>
+                    {isAdmin ? 'System Admin' : isFaculty ? 'Faculty' : 'Student'}
+                  </span>
+                </div>
+              </div>
 
-      {/* Interests */}
-      <div className="card fade-up-2" style={{ padding: '20px', marginBottom: '16px' }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Interests</h3>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {INTERESTS.map(i => (
-            <button key={i} type="button" onClick={() => toggle(interests, setInterests, i)}
-              className={`badge ${interests.includes(i) ? 'badge-blue' : 'badge-gray'}`}
-              style={{ cursor: 'pointer', padding: '5px 12px', fontSize: '12px' }}>
-              {i}
-            </button>
-          ))}
-        </div>
-      </div>
+              <div className="divider" />
 
-      {/* Links */}
-      <div className="card fade-up-3" style={{ padding: '20px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Links</h3>
-        <div>
-          <label className="label">GitHub URL</label>
-          <input className="input" placeholder="https://github.com/username" value={form.github_link ?? ''}
-            onChange={e => setForm((p: any) => ({ ...p, github_link: e.target.value }))} />
-        </div>
-        <div>
-          <label className="label">LinkedIn Username</label>
-          <input className="input" placeholder="your-linkedin-id" value={form.linkedin_id ?? ''}
-            onChange={e => setForm((p: any) => ({ ...p, linkedin_id: e.target.value }))} />
-        </div>
-      </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
+                {isStudent && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-3)' }}>Skills</span>
+                      <span style={{ fontWeight: '600' }}>{selectedSkills.length} selected</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-3)' }}>Coordinator</span>
+                      <span style={{ fontWeight: '600', color: facultyCoordinatorId ? 'var(--green)' : 'var(--red)' }}>
+                        {facultyCoordinatorId ? '✓ Set' : '⚠ Not set'}
+                      </span>
+                    </div>
+                  </>
+                )}
+                {github && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-3)' }}>GitHub</span>
+                    <a href={github} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '11px' }}>View →</a>
+                  </div>
+                )}
+                {linkedin && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-3)' }}>LinkedIn</span>
+                    <a href={`https://linkedin.com/in/${linkedin}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '11px' }}>View →</a>
+                  </div>
+                )}
+              </div>
 
-      <button onClick={save} disabled={saving} className="btn btn-primary" style={{ width: '100%', padding: '12px' }}>
-        {saving ? <><span className="spinner" />Saving…</> : saved ? '✓ Saved!' : 'Save Changes'}
-      </button>
+              {isStudent && selectedSkills.length > 0 && (
+                <>
+                  <div className="divider" />
+                  <div style={{ fontSize: '11px', color: 'var(--text-3)', marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Your Skills
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {selectedSkills.slice(0, 10).map(s => (
+                      <span key={s} className="badge badge-blue" style={{ fontSize: '10px' }}>{s}</span>
+                    ))}
+                    {selectedSkills.length > 10 && (
+                      <span className="badge badge-gray" style={{ fontSize: '10px' }}>+{selectedSkills.length - 10} more</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   )
 }

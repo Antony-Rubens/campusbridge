@@ -1,201 +1,238 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useRouter, useParams } from 'next/navigation'
-import Link from 'next/link'
 
-export default function CommunityPage() {
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useParams, useRouter } from 'next/navigation'
+import { supabase, BANNER_GRADIENTS, BANNER_PATTERNS } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
+
+export default function CommunityDetailPage() {
+  const { id } = useParams()
   const router = useRouter()
-  const { id } = useParams() as { id: string }
   const [community, setCommunity] = useState<any>(null)
-  const [members, setMembers] = useState<any[]>([])
+  const [announcements, setAnnouncements] = useState<any[]>([])
   const [events, setEvents] = useState<any[]>([])
+  const [members, setMembers] = useState<any[]>([])
   const [userId, setUserId] = useState('')
-  const [userRole, setUserRole] = useState<string|null>(null)
   const [isMember, setIsMember] = useState(false)
-  const [profile, setProfile] = useState<any>(null)
-  const [facultyReqs, setFacultyReqs] = useState<any[]>([])
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [tab, setTab] = useState<'feed' | 'events' | 'members'>('feed')
   const [loading, setLoading] = useState(true)
-  const [reqMsg, setReqMsg] = useState('')
-  const [showReqForm, setShowReqForm] = useState(false)
+  const [joining, setJoining] = useState(false)
 
   useEffect(() => {
-    if (!id) return
     const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) { router.push('/'); return }
-      setUserId(session.user.id)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      setUserId(user.id)
 
-      const [commRes, profRes] = await Promise.all([
-        supabase.from('communities').select('*, creator:profiles!communities_created_by_fk(full_name,id)').eq('id', id).single(),
-        supabase.from('profiles').select('role,full_name').eq('id', session.user.id).single(),
-      ])
-      if (!commRes.data) { router.push('/communities'); return }
-      setCommunity(commRes.data)
-      setProfile(profRes.data)
+      const { data: comm } = await supabase
+        .from('communities')
+        .select('*, departments(name), faculty_advisor:faculty_advisor_id(full_name)')
+        .eq('id', id)
+        .single()
+      setCommunity(comm)
 
-      const [memRes, evRes, myMemRes] = await Promise.all([
-        supabase.from('community_members').select('*, profile:profiles(full_name,department,semester,role)').eq('community_id', id),
-        supabase.from('events').select('*').eq('community_id', id).eq('is_published', true).order('event_date'),
-        supabase.from('community_members').select('role').eq('community_id', id).eq('profile_id', session.user.id).single(),
-      ])
-      setMembers(memRes.data ?? [])
-      setEvents(evRes.data ?? [])
-      if (myMemRes.data) { setIsMember(true); setUserRole(myMemRes.data.role) }
+      const { data: ann } = await supabase
+        .from('announcements')
+        .select('*, creator:created_by(full_name)')
+        .eq('community_id', id)
+        .eq('is_pinned', true)
+        .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
+        .order('created_at', { ascending: false })
+      setAnnouncements(ann || [])
 
-      if (commRes.data.created_by === session.user.id) {
-        const { data: reqs } = await supabase.from('faculty_coordinator_requests')
-          .select('*, faculty:profiles!faculty_coordinator_requests_faculty_id_fkey(full_name,department)')
-          .eq('community_id', id).eq('status', 'pending')
-        setFacultyReqs(reqs ?? [])
-      }
+      const { data: evts } = await supabase
+        .from('events')
+        .select('*')
+        .eq('community_id', id)
+        .gte('event_date', new Date().toISOString())
+        .order('event_date', { ascending: true })
+      setEvents(evts || [])
+
+      const { data: mems } = await supabase
+        .from('community_members')
+        .select('*, profiles(full_name, email, role, department_id, departments(name))')
+        .eq('community_id', id)
+        .order('role', { ascending: false })
+      setMembers(mems || [])
+
+      const myMembership = mems?.find(m => m.profile_id === user.id)
+      setIsMember(!!myMembership)
+      setIsAdmin(myMembership?.role === 'admin')
+
       setLoading(false)
     }
     load()
-  }, [id, router])
+  }, [id])
 
-  const join = async () => {
-    await supabase.from('community_members').insert({ community_id: id, profile_id: userId })
-    setIsMember(true); setUserRole('member')
+  const handleJoin = async () => {
+    setJoining(true)
+    await supabase.from('community_members').insert({ community_id: id, profile_id: userId, role: 'member' })
+    setIsMember(true)
+    setJoining(false)
   }
-  const leave = async () => {
+
+  const handleLeave = async () => {
+    setJoining(true)
     await supabase.from('community_members').delete().eq('community_id', id).eq('profile_id', userId)
-    setIsMember(false); setUserRole(null)
-  }
-  const sendFacultyReq = async () => {
-    await supabase.from('faculty_coordinator_requests').insert({ community_id: id, faculty_id: userId, message: reqMsg })
-    setShowReqForm(false); setReqMsg('')
-  }
-  const approveReq = async (reqId: string, facultyId: string) => {
-    await supabase.from('faculty_coordinator_requests').update({ status:'approved', reviewed_by:userId }).eq('id', reqId)
-    await supabase.from('communities').update({ faculty_coordinator: facultyId }).eq('id', id)
-    setFacultyReqs(p => p.filter(r => r.id !== reqId))
-  }
-  const rejectReq = async (reqId: string) => {
-    await supabase.from('faculty_coordinator_requests').update({ status:'rejected', reviewed_by:userId }).eq('id', reqId)
-    setFacultyReqs(p => p.filter(r => r.id !== reqId))
+    setIsMember(false)
+    setIsAdmin(false)
+    setJoining(false)
   }
 
-  if (loading) return <div className="page-loading"><div className="spinner"/></div>
-  if (!community) return null
+  if (loading) return (
+    <div className="page-wrapper">
+      <Sidebar />
+      <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="spinner" />
+      </main>
+    </div>
+  )
 
-  const isOwner = community.created_by === userId
-  const isAdmin = isOwner || userRole === 'admin'
-  const isFaculty = profile?.role === 'faculty' || profile?.role === 'system_admin'
+  if (!community) return (
+    <div className="page-wrapper">
+      <Sidebar />
+      <main className="main-content">
+        <div className="empty-state"><div className="empty-title">Community not found</div></div>
+      </main>
+    </div>
+  )
+
+  const bi = community.banner_index ?? 0
 
   return (
-    <div className="page">
-      {/* Header */}
-      <div className="fade-up" style={{ marginBottom:'24px' }}>
-        <Link href="/communities" className="btn btn-ghost btn-sm" style={{ marginBottom:'14px', display:'inline-flex' }}>← Communities</Link>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'12px' }}>
-          <div>
-            <div style={{ display:'flex', gap:'8px', marginBottom:'8px', flexWrap:'wrap' }}>
-              <span className={`badge ${community.type === 'class' ? 'badge-blue' : 'badge-gray'}`}>{community.type}</span>
-              {community.category && <span className="badge badge-amber">{community.category}</span>}
-              {isMember && <span className="badge badge-green">Joined</span>}
-            </div>
-            <h1 style={{ fontSize:'24px', fontWeight:800, color:'var(--text)', margin:'0 0 4px', letterSpacing:'-0.4px' }}>{community.name}</h1>
-            {community.department && <p style={{ color:'var(--text2)', fontSize:'13px', margin:0 }}>{community.department}{community.semester ? ` · S${community.semester}` : ''}</p>}
-            {community.description && <p style={{ color:'var(--text2)', fontSize:'14px', margin:'10px 0 0', maxWidth:'600px' }}>{community.description}</p>}
+    <div className="page-wrapper">
+      <Sidebar />
+      <main className="main-content" style={{ padding: 0 }}>
+        {/* Banner */}
+        <div style={{
+          background: BANNER_GRADIENTS[bi % BANNER_GRADIENTS.length],
+          height: '160px',
+          display: 'flex',
+          alignItems: 'flex-end',
+          padding: '20px 32px',
+          position: 'relative',
+        }}>
+          <div style={{ fontSize: '3rem', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -60%)', opacity: 0.3 }}>
+            {BANNER_PATTERNS[bi % BANNER_PATTERNS.length]}
           </div>
-          <div style={{ display:'flex', gap:'8px' }}>
-            {isAdmin && <Link href={`/communities/${id}/manage`} className="btn btn-secondary btn-sm">⚙ Manage</Link>}
-            {isAdmin && <Link href={`/communities/${id}/events/create`} className="btn btn-primary btn-sm">+ Event</Link>}
-            {!isOwner && (
-              <button onClick={isMember ? leave : join} className={`btn btn-sm ${isMember ? 'btn-danger' : 'btn-primary'}`}>
-                {isMember ? 'Leave' : 'Join'}
-              </button>
-            )}
+          <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', width: '100%' }}>
+            <div>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#fff', marginBottom: '4px' }}>{community.name}</h1>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span className={`badge ${community.type === 'class' ? 'badge-yellow' : 'badge-blue'}`} style={{ fontSize: '10px' }}>{community.type}</span>
+                {community.category && <span className="badge badge-gray" style={{ fontSize: '10px' }}>{community.category}</span>}
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>{members.length} members</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {isAdmin && (
+                <Link href={`/communities/${id}/manage`} className="btn btn-ghost btn-sm">⚙ Manage</Link>
+              )}
+              {community.type !== 'class' && (
+                isMember ? (
+                  <button className="btn btn-ghost btn-sm" onClick={handleLeave} disabled={joining}>
+                    {joining ? '...' : 'Leave'}
+                  </button>
+                ) : (
+                  <button className="btn btn-primary btn-sm" onClick={handleJoin} disabled={joining}>
+                    {joining ? '...' : 'Join'}
+                  </button>
+                )
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Faculty coordinator requests (owner only) */}
-      {isOwner && facultyReqs.length > 0 && (
-        <div className="card fade-up-1" style={{ padding:'16px', marginBottom:'20px', borderColor:'rgba(245,158,11,0.3)' }}>
-          <p style={{ fontWeight:700, color:'var(--text)', fontSize:'13px', margin:'0 0 12px' }}>Faculty Coordinator Requests ({facultyReqs.length})</p>
-          {facultyReqs.map(r => (
-            <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px', background:'var(--surface2)', borderRadius:'10px', marginBottom:'8px', gap:'12px' }}>
-              <div>
-                <p style={{ fontWeight:600, color:'var(--text)', fontSize:'13px', margin:'0 0 2px' }}>{r.faculty?.full_name}</p>
-                <p style={{ color:'var(--text3)', fontSize:'12px', margin:0 }}>{r.faculty?.department}{r.message ? ` · "${r.message}"` : ''}</p>
-              </div>
-              <div style={{ display:'flex', gap:'8px' }}>
-                <button onClick={() => approveReq(r.id, r.faculty_id)} className="btn btn-sm" style={{ background:'var(--green-dim)', color:'var(--green)', border:'1px solid rgba(16,185,129,.2)' }}>Approve</button>
-                <button onClick={() => rejectReq(r.id)} className="btn btn-danger btn-sm">Reject</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Faculty coordinator request button */}
-      {isFaculty && !community.faculty_coordinator && !isOwner && (
-        <div className="card fade-up-1" style={{ padding:'16px', marginBottom:'20px', borderColor:'var(--amber-border)' }}>
-          <p style={{ fontWeight:700, color:'var(--text)', fontSize:'13px', margin:'0 0 4px' }}>Become Faculty Coordinator</p>
-          <p style={{ color:'var(--text2)', fontSize:'12px', margin:'0 0 10px' }}>Request to coordinate this community</p>
-          {showReqForm ? (
-            <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-              <textarea className="input" placeholder="Why do you want to coordinate?" value={reqMsg} onChange={e => setReqMsg(e.target.value)} rows={2} style={{ resize:'none' }} />
-              <div style={{ display:'flex', gap:'8px' }}>
-                <button onClick={sendFacultyReq} className="btn btn-primary btn-sm">Send Request</button>
-                <button onClick={() => setShowReqForm(false)} className="btn btn-ghost btn-sm">Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => setShowReqForm(true)} className="btn btn-secondary btn-sm">Request Coordinator Role</button>
+        <div style={{ padding: '24px 32px' }}>
+          {community.description && (
+            <p style={{ fontSize: '13px', color: 'var(--text-2)', marginBottom: '20px', maxWidth: '600px' }}>{community.description}</p>
           )}
-        </div>
-      )}
 
-      <div className="fade-up-2" style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:'20px', alignItems:'start' }}>
-        {/* Events */}
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'14px' }}>
-            <h2 className="section-title">Events</h2>
-            {isAdmin && <Link href={`/communities/${id}/events/create`} className="btn btn-primary btn-sm">+ Add Event</Link>}
+          {/* Tabs */}
+          <div className="tabs">
+            {(['feed', 'events', 'members'] as const).map(t => (
+              <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === 'feed' && announcements.length > 0 && ` (${announcements.length})`}
+                {t === 'events' && events.length > 0 && ` (${events.length})`}
+                {t === 'members' && ` (${members.length})`}
+              </button>
+            ))}
           </div>
-          {events.length === 0 ? (
-            <div className="card" style={{ padding:'40px', textAlign:'center' }}>
-              <p style={{ fontSize:'28px', margin:'0 0 8px' }}>📅</p>
-              <p style={{ color:'var(--text2)', fontSize:'13px', margin:0 }}>No events yet</p>
-            </div>
-          ) : (
-            <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-              {events.map(ev => (
-                <div key={ev.id} className="card" style={{ padding:'16px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'12px' }}>
-                  <div>
-                    <p style={{ fontWeight:600, color:'var(--text)', fontSize:'14px', margin:'0 0 4px' }}>{ev.title}</p>
-                    <p style={{ color:'var(--text3)', fontSize:'12px', margin:'0 0 4px' }}>{ev.location || 'TBD'}</p>
-                    <p style={{ color:'var(--text2)', fontSize:'12px', margin:0 }}>
-                      📅 {ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'TBD'}
-                    </p>
+
+          {/* Feed tab */}
+          {tab === 'feed' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {announcements.length === 0 ? (
+                <div className="empty-state"><div className="empty-icon">📌</div><div className="empty-title">No pinned announcements</div></div>
+              ) : announcements.map(ann => (
+                <div key={ann.id} className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: '600' }}>📌 {ann.title}</div>
+                    {ann.expires_at && <span className="badge badge-yellow" style={{ fontSize: '10px' }}>Exp {new Date(ann.expires_at).toLocaleDateString()}</span>}
                   </div>
-                  {ev.activity_points > 0 && <span className="badge badge-amber">+{ev.activity_points} pts</span>}
+                  <p style={{ fontSize: '13px', lineHeight: '1.6' }}>{ann.content}</p>
+                  <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '8px' }}>
+                    {ann.creator?.full_name} · {new Date(ann.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Events tab */}
+          {tab === 'events' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {events.length === 0 ? (
+                <div className="empty-state"><div className="empty-icon">📅</div><div className="empty-title">No upcoming events</div></div>
+              ) : events.map(evt => (
+                <Link key={evt.id} href={`/communities/${id}/events/${evt.id}`} style={{ textDecoration: 'none' }}>
+                  <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>{evt.title}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>
+                        📅 {new Date(evt.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {evt.venue && ` · 📍 ${evt.venue}`}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {evt.ktu_category && <span className="badge badge-blue" style={{ fontSize: '10px' }}>{evt.ktu_category}</span>}
+                      <span className="badge badge-green">+{evt.suggested_points} pts</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          {/* Members tab */}
+          {tab === 'members' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {members.map(m => (
+                <div key={m.profile_id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px' }}>
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: m.role === 'admin' ? '#a78bfa20' : 'var(--bg-4)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '13px', fontWeight: '700',
+                    color: m.role === 'admin' ? 'var(--purple)' : 'var(--text-3)',
+                    flexShrink: 0,
+                  }}>
+                    {m.profiles?.full_name?.charAt(0)}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '13px', fontWeight: '500' }}>{m.profiles?.full_name}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>{m.profiles?.departments?.name}</div>
+                  </div>
+                  {m.role === 'admin' && <span className="badge badge-purple" style={{ fontSize: '10px' }}>Admin</span>}
                 </div>
               ))}
             </div>
           )}
         </div>
-
-        {/* Members */}
-        <div>
-          <h2 className="section-title" style={{ marginBottom:'14px' }}>Members ({members.length})</h2>
-          <div className="card" style={{ padding:'12px', maxHeight:'400px', overflowY:'auto' }}>
-            {members.map(m => (
-              <div key={m.profile_id} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 4px', borderBottom:'1px solid var(--border)' }}>
-                <div className="avatar" style={{ width:32, height:32, fontSize:12 }}>{m.profile?.full_name?.[0] ?? '?'}</div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ fontWeight:600, color:'var(--text)', fontSize:'12px', margin:'0 0 1px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.profile?.full_name}</p>
-                  <p style={{ color:'var(--text3)', fontSize:'11px', margin:0 }}>{m.profile?.department}{m.profile?.semester ? ` S${m.profile.semester}` : ''}</p>
-                </div>
-                {m.role !== 'member' && <span className="badge badge-amber" style={{ fontSize:'10px' }}>{m.role}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      </main>
     </div>
   )
 }

@@ -1,90 +1,119 @@
 'use client'
-import { useState, useEffect } from 'react'
+
+import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
 
-export default function LoginPage() {
-  const router = useRouter()
-  const [email, setEmail] = useState('')
+type Role = 'student' | 'faculty' | 'system_admin' | null
+
+export default function LandingPage() {
+  const [selectedRole, setSelectedRole] = useState<Role>(null)
   const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
-  const [checking, setChecking] = useState(true)
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        supabase.from('profiles').select('is_profile_complete').eq('id', session.user.id).single()
-          .then(({ data }) => router.push(data?.is_profile_complete ? '/dashboard' : '/register-details'))
-      } else setChecking(false)
-    })
-  }, [router])
+  const roles = [
+    { key: 'student' as Role, icon: '🎓', title: 'Student', desc: 'Track activity points, join communities, discover events', accent: '#2c3e50' }, // Dusk Blue
+    { key: 'faculty' as Role, icon: '🧑‍🏫', title: 'Faculty Coordinator', desc: 'Review certificates, manage your assigned students', accent: '#a21a1a' }, // Ruby Red
+    { key: 'system_admin' as Role, icon: '⚙️', title: 'System Admin', desc: 'Manage departments, batches, users and platform settings', accent: '#5d81a5' },
+  ]
 
-  const handleGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    })
-    if (error) setError(error.message)
-  }
-
-  const handleEmail = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email.trim()) { setError('Enter your email'); return }
+  const handleLogin = async () => {
+    if (!selectedRole) return
     setLoading(true)
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-    })
-    if (error) setError(error.message)
-    else setSent(true)
-    setLoading(false)
+    setError('')
+    try {
+      localStorage.setItem('intended_role', selectedRole)
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback` },
+      })
+      if (error) throw error
+    } catch (e: any) {
+      setError(e.message || 'Login failed. Try again.')
+      setLoading(false)
+    }
   }
-
-  if (checking) return <div className="page-loading"><div className="spinner" /></div>
 
   return (
-    <div style={{ minHeight:'100vh', background:'var(--bg)', display:'flex', alignItems:'center', justifyContent:'center', padding:'24px', position:'relative', overflow:'hidden' }}>
-      <div style={{ position:'absolute', top:'-10%', left:'50%', transform:'translateX(-50%)', width:'700px', height:'700px', background:'radial-gradient(circle, rgba(245,158,11,0.05) 0%, transparent 65%)', pointerEvents:'none' }} />
-      <div style={{ width:'100%', maxWidth:'380px', position:'relative' }}>
-        <div className="fade-up" style={{ textAlign:'center', marginBottom:'36px' }}>
-          <div style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:'48px', height:'48px', background:'var(--amber-dim)', border:'1px solid var(--amber-border)', borderRadius:'12px', marginBottom:'14px' }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="var(--amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+    <div style={{
+      minHeight: '100vh', background: 'var(--bg)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '24px', position: 'relative', overflow: 'hidden',
+    }}>
+      <div style={{
+        position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)',
+        width: '600px', height: '300px',
+        background: 'radial-gradient(ellipse, #4f8ef712 0%, transparent 70%)',
+        pointerEvents: 'none',
+      }} />
+      <div style={{ width: '100%', maxWidth: '460px', position: 'relative', zIndex: 1 }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+            {/* --- Updated Logo Section --- */}
+            <div style={{
+              width: '42px', height: '42px',
+              background: 'var(--bg-2)',
+              border: '1px solid var(--border)',
+              borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              overflow: 'hidden', padding: '4px'
+            }}>
+              <img 
+                src="/logo.ico" 
+                alt="CampusBridge Logo" 
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+              />
+            </div>
+            {/* ---------------------------- */}
+            <span style={{ fontSize: '22px', fontWeight: '700', letterSpacing: '-0.03em', color: 'var(--text)' }}>CampusBridge</span>
           </div>
-          <h1 style={{ fontSize:'24px', fontWeight:800, color:'var(--text)', margin:'0 0 4px', letterSpacing:'-0.5px' }}>CampusBridge</h1>
-          <p style={{ fontSize:'13px', color:'var(--text2)', margin:0 }}>AISAT · KTU Activity Portal</p>
+          <p style={{ color: 'var(--text-3)', fontSize: '13px' }}>Select your role to continue</p>
         </div>
 
-        <div className="card fade-up-1" style={{ padding:'24px' }}>
-          {sent ? (
-            <div style={{ textAlign:'center', padding:'12px 0' }}>
-              <div style={{ fontSize:'36px', marginBottom:'10px' }}>📬</div>
-              <h2 style={{ fontSize:'15px', fontWeight:700, color:'var(--text)', marginBottom:'6px' }}>Check your inbox</h2>
-              <p style={{ fontSize:'13px', color:'var(--text2)', marginBottom:'16px' }}>Magic link sent to <strong style={{ color:'var(--text)' }}>{email}</strong></p>
-              <button onClick={() => setSent(false)} className="btn btn-ghost btn-sm">← Try again</button>
-            </div>
-          ) : (
-            <>
-              {error && <div className="error-box" style={{ marginBottom:'14px' }}>{error}</div>}
-              <button onClick={handleGoogle} className="btn btn-secondary" style={{ width:'100%', marginBottom:'14px', justifyContent:'center' }}>
-                <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                Continue with Google
-              </button>
-              <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'14px' }}>
-                <hr className="divider" style={{ flex:1 }} />
-                <span style={{ fontSize:'11px', color:'var(--text3)' }}>or</span>
-                <hr className="divider" style={{ flex:1 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
+          {roles.map((role) => (
+            <button key={role.key} onClick={() => setSelectedRole(role.key)} style={{
+              background: selectedRole === role.key ? `${role.accent}10` : 'var(--bg-2)',
+              border: `1px solid ${selectedRole === role.key ? role.accent + '40' : 'var(--border)'}`,
+              borderRadius: 'var(--radius)', padding: '16px 18px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left',
+              transition: 'all 0.15s', width: '100%',
+            }}>
+              <span style={{ fontSize: '22px', flexShrink: 0 }}>{role.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '14px', fontWeight: '600', color: selectedRole === role.key ? role.accent : 'var(--text)', marginBottom: '2px', fontFamily: 'Sora, sans-serif' }}>
+                  {role.title}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-3)', fontFamily: 'Sora, sans-serif', lineHeight: '1.4' }}>
+                  {role.desc}
+                </div>
               </div>
-              <form onSubmit={handleEmail} style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-                <input type="email" placeholder="your@college.edu" value={email} onChange={e => setEmail(e.target.value)} className="input" />
-                <button type="submit" disabled={loading} className="btn btn-primary" style={{ width:'100%' }}>
-                  {loading ? <><span className="spinner" />Sending…</> : 'Send Magic Link'}
-                </button>
-              </form>
-            </>
-          )}
+              <div style={{
+                width: '18px', height: '18px', borderRadius: '50%',
+                border: `2px solid ${selectedRole === role.key ? role.accent : 'var(--border-active)'}`,
+                background: selectedRole === role.key ? role.accent : 'transparent',
+                flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
+              }}>
+                {selectedRole === role.key && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#fff' }} />}
+              </div>
+            </button>
+          ))}
         </div>
-        <p className="fade-up-2" style={{ textAlign:'center', fontSize:'11px', color:'var(--text3)', marginTop:'16px' }}>Authorized users only · AISAT Kalamassery</p>
+
+        {error && (
+          <div style={{ background: 'var(--red-glow)', border: '1px solid #f8717120', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: '13px', color: 'var(--red)', marginBottom: '16px' }}>
+            {error}
+          </div>
+        )}
+
+        <button onClick={handleLogin} disabled={!selectedRole || loading} className="btn btn-primary"
+          style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px', background: 'var(--accent)' }}>
+          {loading
+            ? <><div className="spinner" style={{ width: '16px', height: '16px' }} /> Redirecting...</>
+            : <>Continue with Google →</>
+          }
+        </button>
+        <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text-3)', marginTop: '20px' }}>
+          AISAT · KTU Activity Point Management
+        </p>
       </div>
     </div>
   )

@@ -1,128 +1,179 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 
-export default function CommunitiesPage() {
+import { useEffect, useState } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { supabase, KTU_CATEGORIES, ACTIVITY_LEVELS } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
+
+export default function CreateEventPage() {
+  const { id } = useParams()
   const router = useRouter()
-  const [all, setAll] = useState<any[]>([])
-  const [myIds, setMyIds] = useState<Set<string>>(new Set())
   const [userId, setUserId] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  const [community, setCommunity] = useState<any>(null)
+  const [scheme, setScheme] = useState('2019')
+
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [eventDate, setEventDate] = useState('')
+  const [regDeadline, setRegDeadline] = useState('')
+  const [venue, setVenue] = useState('')
+  const [ktuCategory, setKtuCategory] = useState('')
+  const [activityLevel, setActivityLevel] = useState('')
+  const [suggestedPoints, setSuggestedPoints] = useState(0)
+  const [maxParticipants, setMaxParticipants] = useState('')
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) { router.push('/'); return }
-      setUserId(session.user.id)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      setUserId(user.id)
 
-      // No join — just fetch communities directly
-      const { data: comms, error: e } = await supabase
-        .from('communities')
-        .select('id, name, description, type, category, department, semester, created_by, is_active')
-        .eq('is_active', true)
-        .order('name')
-
-      if (e) { setError(e.message); setLoading(false); return }
-      setAll(comms ?? [])
-
-      // Fix community_members — use a simple query
-      const { data: mems, error: memErr } = await supabase
-        .from('community_members')
-        .select('community_id')
-        .eq('profile_id', session.user.id)
-
-      if (!memErr) setMyIds(new Set((mems ?? []).map((m: any) => m.community_id)))
-      setLoading(false)
+      const { data: comm } = await supabase.from('communities').select('*, batches(scheme)').eq('id', id).single()
+      setCommunity(comm)
+      if (comm?.batches?.scheme) setScheme(comm.batches.scheme)
     }
     load()
-  }, [router])
+  }, [id])
 
-  const join = async (id: string) => {
-    await supabase.from('community_members').insert({ community_id: id, profile_id: userId })
-    setMyIds(p => new Set([...p, id]))
+  // Auto-fetch suggested points when category + level selected
+  useEffect(() => {
+    if (!ktuCategory || !activityLevel) { setSuggestedPoints(0); return }
+    const fetchPoints = async () => {
+      const { data } = await supabase
+        .from('ktu_rules')
+        .select('base_points')
+        .eq('scheme', scheme)
+        .eq('category', ktuCategory)
+        .eq('level', activityLevel)
+        .single()
+      setSuggestedPoints(data?.base_points || 0)
+    }
+    fetchPoints()
+  }, [ktuCategory, activityLevel, scheme])
+
+  const handleSubmit = async () => {
+    if (!title.trim()) { setError('Title is required'); return }
+    if (!eventDate) { setError('Event date is required'); return }
+    setSaving(true)
+    setError('')
+    try {
+      const { error } = await supabase.from('events').insert({
+        community_id: id,
+        title: title.trim(),
+        description: description.trim() || null,
+        event_date: eventDate,
+        registration_deadline: regDeadline || null,
+        venue: venue.trim() || null,
+        ktu_category: ktuCategory || null,
+        activity_level: activityLevel || null,
+        suggested_points: suggestedPoints,
+        max_participants: maxParticipants ? parseInt(maxParticipants) : null,
+        created_by: userId,
+        banner_index: Math.floor(Math.random() * 8),
+      })
+      if (error) throw error
+      router.push(`/communities/${id}`)
+    } catch (e: any) {
+      setError(e.message || 'Failed to create event')
+      setSaving(false)
+    }
   }
-
-  const leave = async (id: string) => {
-    await supabase.from('community_members').delete().eq('community_id', id).eq('profile_id', userId)
-    setMyIds(p => { const s = new Set(p); s.delete(id); return s })
-  }
-
-  const filtered = all.filter(c => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    return c.name?.toLowerCase().includes(q) || c.department?.toLowerCase().includes(q)
-  })
 
   return (
-    <div className="page">
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'24px', flexWrap:'wrap', gap:'12px' }}>
-        <div>
-          <h1 style={{ fontSize:'22px', fontWeight:800, color:'var(--text)', margin:'0 0 4px' }}>Communities</h1>
-          <p style={{ color:'var(--text2)', fontSize:'13px', margin:0 }}>
-            {loading ? 'Loading…' : `${all.length} communities`}
-          </p>
+    <div className="page-wrapper">
+      <Sidebar />
+      <main className="main-content">
+        <div className="page-header">
+          <h1 className="page-title">Create Event</h1>
+          <p className="page-subtitle">{community?.name}</p>
         </div>
-        <Link href="/communities/create" className="btn btn-primary">+ New Community</Link>
-      </div>
 
-      <input className="input" placeholder="Search…" value={search}
-        onChange={e => setSearch(e.target.value)} style={{ maxWidth:'280px', marginBottom:'20px' }} />
+        <div style={{ maxWidth: '560px' }}>
+          <div className="card" style={{ marginBottom: '16px' }}>
+            <h3 style={{ marginBottom: '16px', fontSize: '12px', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Event Details</h3>
+            <div className="input-group">
+              <label className="input-label">Event Title *</label>
+              <input className="input" placeholder="e.g. Web Dev Workshop" value={title} onChange={e => setTitle(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Description</label>
+              <textarea className="input" placeholder="What's this event about?" value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="input-group">
+                <label className="input-label">Event Date *</label>
+                <input type="datetime-local" className="input" value={eventDate} onChange={e => setEventDate(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Registration Deadline</label>
+                <input type="datetime-local" className="input" value={regDeadline} onChange={e => setRegDeadline(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label">Venue</label>
+                <input className="input" placeholder="e.g. Seminar Hall" value={venue} onChange={e => setVenue(e.target.value)} />
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label">Max Participants</label>
+                <input type="number" className="input" placeholder="Leave blank for unlimited" value={maxParticipants} onChange={e => setMaxParticipants(e.target.value)} />
+              </div>
+            </div>
+          </div>
 
-      {error && <div className="error-box" style={{ marginBottom:'16px' }}>Error: {error}</div>}
-
-      {loading ? (
-        <div style={{ display:'flex', justifyContent:'center', padding:'60px' }}>
-          <div className="spinner" />
-        </div>
-      ) : all.length === 0 ? (
-        <div className="empty-state">
-          <div className="icon">🏘️</div>
-          <p>No communities found</p>
-          <Link href="/communities/create" className="btn btn-primary btn-sm" style={{ marginTop:'12px' }}>Create one</Link>
-        </div>
-      ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:'12px' }}>
-          {filtered.map(c => {
-            const isMember = myIds.has(c.id)
-            const isOwner = c.created_by === userId
-            return (
-              <div key={c.id} className="card card-hover" style={{ padding:'18px', display:'flex', flexDirection:'column', gap:'10px' }}>
-                <div style={{ display:'flex', justifyContent:'space-between' }}>
-                  <div>
-                    <div style={{ display:'flex', gap:'6px', marginBottom:'6px', flexWrap:'wrap' }}>
-                      <span className="badge badge-gray">{c.type ?? 'general'}</span>
-                      {c.category && <span className="badge badge-amber">{c.category}</span>}
-                    </div>
-                    <p style={{ fontWeight:700, color:'var(--text)', fontSize:'14px', margin:'0 0 2px' }}>{c.name}</p>
-                    {c.department && <p style={{ color:'var(--text3)', fontSize:'12px', margin:0 }}>{c.department}</p>}
+          <div className="card" style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginBottom: '16px', fontSize: '12px', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>KTU Activity Points</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="input-group">
+                <label className="input-label">KTU Category</label>
+                <select className="input" value={ktuCategory} onChange={e => setKtuCategory(e.target.value)}>
+                  <option value="">Select category</option>
+                  {KTU_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="input-group">
+                <label className="input-label">Activity Level</label>
+                <select className="input" value={activityLevel} onChange={e => setActivityLevel(e.target.value)}>
+                  <option value="">Select level</option>
+                  {ACTIVITY_LEVELS.map(l => <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>)}
+                </select>
+              </div>
+            </div>
+            {suggestedPoints > 0 && (
+              <div style={{
+                background: 'var(--green-glow)', border: '1px solid #3ecf8e20',
+                borderRadius: 'var(--radius-sm)', padding: '10px 14px',
+                display: 'flex', alignItems: 'center', gap: '10px',
+              }}>
+                <span style={{ fontSize: '1.2rem' }}>✓</span>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--green)' }}>
+                    {suggestedPoints} activity points
                   </div>
-                  {isOwner && (
-                    <Link href={`/communities/${c.id}/manage`} style={{ color:'var(--text3)', textDecoration:'none', fontSize:'16px' }}>⚙</Link>
-                  )}
-                </div>
-                {c.description && (
-                  <p style={{ color:'var(--text2)', fontSize:'12px', margin:0, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
-                    {c.description}
-                  </p>
-                )}
-                <div style={{ display:'flex', gap:'8px', marginTop:'auto' }}>
-                  <Link href={`/communities/${c.id}`} className="btn btn-secondary btn-sm" style={{ flex:1, justifyContent:'center' }}>View</Link>
-                  {!isOwner && (
-                    <button onClick={() => isMember ? leave(c.id) : join(c.id)}
-                      className={`btn btn-sm ${isMember ? 'btn-danger' : 'btn-primary'}`} style={{ flex:1 }}>
-                      {isMember ? 'Leave' : 'Join'}
-                    </button>
-                  )}
+                  <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>
+                    Based on KTU {scheme} scheme · {ktuCategory} · {activityLevel} level
+                  </div>
                 </div>
               </div>
-            )
-          })}
+            )}
+          </div>
+
+          {error && (
+            <div style={{ background: 'var(--red-glow)', border: '1px solid #f8717120', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: '13px', color: 'var(--red)', marginBottom: '16px' }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button className="btn btn-ghost" onClick={() => router.back()}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+              {saving ? <><div className="spinner" style={{ width: '14px', height: '14px' }} /> Creating...</> : 'Create Event'}
+            </button>
+          </div>
         </div>
-      )}
+      </main>
     </div>
   )
 }

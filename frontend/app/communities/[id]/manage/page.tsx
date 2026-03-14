@@ -1,113 +1,207 @@
 'use client'
+
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
 
-const CATS = ['Technical','Cultural','Sports','Social','Professional','Other']
-const DEPTS = ['CSE','ECE','EEE','ME','CE','IT','MCA','MBA','All Departments']
-
-export default function ManageCommunity() {
+export default function CommunityManagePage() {
+  const { id } = useParams()
   const router = useRouter()
-  const { id } = useParams() as { id: string }
+  const [community, setCommunity] = useState<any>(null)
   const [members, setMembers] = useState<any[]>([])
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
-  const [form, setForm] = useState({ name:'', description:'', category:'', department:'' })
+  const [announcements, setAnnouncements] = useState<any[]>([])
+  const [userId, setUserId] = useState('')
+  const [tab, setTab] = useState<'announcements' | 'members'>('announcements')
+  const [loading, setLoading] = useState(true)
+
+  // Announcement form
+  const [annTitle, setAnnTitle] = useState('')
+  const [annContent, setAnnContent] = useState('')
+  const [annExpiry, setAnnExpiry] = useState('')
+  const [savingAnn, setSavingAnn] = useState(false)
 
   useEffect(() => {
-    if (!id) return
     const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) { router.push('/'); return }
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      setUserId(user.id)
 
       const { data: comm } = await supabase.from('communities').select('*').eq('id', id).single()
-      if (!comm || comm.created_by !== session.user.id) { router.push('/communities'); return }
-      setForm({ name: comm.name ?? '', description: comm.description ?? '', category: comm.category ?? '', department: comm.department ?? '' })
+      setCommunity(comm)
+
+      // Check admin
+      const { data: myRole } = await supabase.from('community_members')
+        .select('role').eq('community_id', id).eq('profile_id', user.id).single()
+      if (myRole?.role !== 'admin') { router.push(`/communities/${id}`); return }
 
       const { data: mems } = await supabase.from('community_members')
-        .select('*, profile:profiles(full_name,department,role)').eq('community_id', id)
-      setMembers(mems ?? [])
+        .select('*, profiles(full_name, email, roll_number, departments(name))')
+        .eq('community_id', id)
+      setMembers(mems || [])
+
+      const { data: anns } = await supabase.from('announcements')
+        .select('*').eq('community_id', id).order('created_at', { ascending: false })
+      setAnnouncements(anns || [])
+
+      setLoading(false)
     }
     load()
-  }, [id, router])
+  }, [id])
 
-  const set = (f: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>) =>
-    setForm(p => ({ ...p, [f]: e.target.value }))
-
-  const save = async () => {
-    setSaving(true)
-    const { error: err } = await supabase.from('communities').update({
-      name: form.name, description: form.description || null,
-      category: form.category, department: form.department || null, updated_at: new Date().toISOString(),
-    }).eq('id', id)
-    if (err) setError(err.message)
-    else { setSaved(true); setTimeout(() => setSaved(false), 2000) }
-    setSaving(false)
+  const handleCreateAnnouncement = async () => {
+    if (!annTitle.trim() || !annContent.trim()) return
+    setSavingAnn(true)
+    const { data } = await supabase.from('announcements').insert({
+      community_id: id,
+      title: annTitle.trim(),
+      content: annContent.trim(),
+      created_by: userId,
+      is_pinned: true,
+      expires_at: annExpiry || null,
+    }).select().single()
+    if (data) setAnnouncements(prev => [data, ...prev])
+    setAnnTitle(''); setAnnContent(''); setAnnExpiry('')
+    setSavingAnn(false)
   }
 
-  const changeRole = async (profileId: string, role: string) => {
-    await supabase.from('community_members').update({ role }).eq('community_id', id).eq('profile_id', profileId)
-    setMembers(p => p.map(m => m.profile_id === profileId ? { ...m, role } : m))
+  const handleUnpin = async (annId: string) => {
+    await supabase.from('announcements').update({ is_pinned: false }).eq('id', annId)
+    setAnnouncements(prev => prev.filter(a => a.id !== annId))
   }
 
-  const removeMember = async (profileId: string) => {
+  const handleDeleteAnn = async (annId: string) => {
+    await supabase.from('announcements').delete().eq('id', annId)
+    setAnnouncements(prev => prev.filter(a => a.id !== annId))
+  }
+
+  const handlePromote = async (profileId: string) => {
+    await supabase.from('community_members').update({ role: 'admin' }).eq('community_id', id).eq('profile_id', profileId)
+    setMembers(prev => prev.map(m => m.profile_id === profileId ? { ...m, role: 'admin' } : m))
+  }
+
+  const handleDemote = async (profileId: string) => {
+    await supabase.from('community_members').update({ role: 'member' }).eq('community_id', id).eq('profile_id', profileId)
+    setMembers(prev => prev.map(m => m.profile_id === profileId ? { ...m, role: 'member' } : m))
+  }
+
+  const handleRemove = async (profileId: string) => {
     await supabase.from('community_members').delete().eq('community_id', id).eq('profile_id', profileId)
-    setMembers(p => p.filter(m => m.profile_id !== profileId))
+    setMembers(prev => prev.filter(m => m.profile_id !== profileId))
   }
+
+  if (loading) return (
+    <div className="page-wrapper"><Sidebar />
+      <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div className="spinner" /></main>
+    </div>
+  )
 
   return (
-    <div className="page-sm">
-      <Link href={`/communities/${id}`} className="btn btn-ghost btn-sm" style={{ marginBottom:'20px', display:'inline-flex' }}>← Back to Community</Link>
-      <h1 style={{ fontSize:'22px', fontWeight:800, color:'var(--text)', margin:'0 0 24px' }}>Manage Community</h1>
-
-      {error && <div className="error-box" style={{ marginBottom:'16px' }}>{error}</div>}
-
-      <div className="card fade-up" style={{ padding:'20px', marginBottom:'16px', display:'flex', flexDirection:'column', gap:'14px' }}>
-        <h2 style={{ margin:0, fontSize:'13px', fontWeight:700, color:'var(--text2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Details</h2>
-        <div><label className="label">Name</label><input className="input" value={form.name} onChange={set('name')} /></div>
-        <div><label className="label">Description</label>
-          <textarea className="input" value={form.description} onChange={set('description') as any} rows={3} style={{ resize:'none' }} />
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px' }}>
-          <div><label className="label">Category</label>
-            <select className="input" value={form.category} onChange={set('category')}>
-              {CATS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+    <div className="page-wrapper">
+      <Sidebar />
+      <main className="main-content">
+        <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 className="page-title">Manage · {community?.name}</h1>
+            <p className="page-subtitle">Community admin panel</p>
           </div>
-          <div><label className="label">Department</label>
-            <select className="input" value={form.department} onChange={set('department')}>
-              <option value="">All</option>{DEPTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Link href={`/communities/${id}/scout`} className="btn btn-primary">🔍 Scout Members</Link>
+            <Link href={`/communities/${id}/events/create`} className="btn btn-ghost">+ Create Event</Link>
+            <Link href={`/communities/${id}`} className="btn btn-ghost">← Back</Link>
           </div>
         </div>
-        <button onClick={save} disabled={saving} className="btn btn-primary" style={{ alignSelf:'flex-start' }}>
-          {saving ? <><span className="spinner"/>Saving…</> : saved ? '✓ Saved' : 'Save Changes'}
-        </button>
-      </div>
 
-      <div className="card fade-up-1" style={{ padding:'20px' }}>
-        <h2 style={{ margin:'0 0 14px', fontSize:'13px', fontWeight:700, color:'var(--text2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Members ({members.length})</h2>
-        <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-          {members.map(m => (
-            <div key={m.profile_id} style={{ display:'flex', alignItems:'center', gap:'12px', padding:'10px', background:'var(--surface2)', borderRadius:'10px' }}>
-              <div className="avatar" style={{ width:32, height:32, fontSize:12 }}>{m.profile?.full_name?.[0]}</div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontWeight:600, color:'var(--text)', fontSize:'13px', margin:'0 0 1px' }}>{m.profile?.full_name}</p>
-                <p style={{ color:'var(--text3)', fontSize:'11px', margin:0 }}>{m.profile?.department} · {m.profile?.role}</p>
+        <div className="tabs">
+          <button className={`tab ${tab === 'announcements' ? 'active' : ''}`} onClick={() => setTab('announcements')}>
+            Announcements ({announcements.length})
+          </button>
+          <button className={`tab ${tab === 'members' ? 'active' : ''}`} onClick={() => setTab('members')}>
+            Members ({members.length})
+          </button>
+        </div>
+
+        {tab === 'announcements' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            {/* Create announcement */}
+            <div>
+              <h3 style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                New Announcement
+              </h3>
+              <div className="card">
+                <div className="input-group">
+                  <label className="input-label">Title *</label>
+                  <input className="input" placeholder="Announcement title" value={annTitle} onChange={e => setAnnTitle(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Content *</label>
+                  <textarea className="input" placeholder="Write your announcement..." value={annContent} onChange={e => setAnnContent(e.target.value)} style={{ minHeight: '100px' }} />
+                </div>
+                <div className="input-group" style={{ marginBottom: '16px' }}>
+                  <label className="input-label">Expires On <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(optional)</span></label>
+                  <input type="date" className="input" value={annExpiry} onChange={e => setAnnExpiry(e.target.value)} />
+                </div>
+                <button className="btn btn-primary" onClick={handleCreateAnnouncement} disabled={savingAnn} style={{ width: '100%', justifyContent: 'center' }}>
+                  {savingAnn ? 'Posting...' : 'Post Announcement'}
+                </button>
               </div>
-              <select value={m.role} onChange={e => changeRole(m.profile_id, e.target.value)}
-                className="input" style={{ width:'auto', padding:'5px 10px', fontSize:'12px' }}>
-                <option value="member">Member</option>
-                <option value="moderator">Moderator</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button onClick={() => removeMember(m.profile_id)} className="btn btn-danger btn-xs">Remove</button>
             </div>
-          ))}
-        </div>
-      </div>
+
+            {/* Existing announcements */}
+            <div>
+              <h3 style={{ marginBottom: '14px', fontSize: '13px', color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Active Announcements
+              </h3>
+              {announcements.length === 0 ? (
+                <div className="empty-state" style={{ padding: '32px' }}><div className="empty-title">No announcements yet</div></div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {announcements.map(ann => (
+                    <div key={ann.id} className="card" style={{ padding: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '600' }}>{ann.title}</div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleUnpin(ann.id)} style={{ padding: '3px 8px', fontSize: '11px' }}>Unpin</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteAnn(ann.id)} style={{ padding: '3px 8px', fontSize: '11px' }}>Delete</button>
+                        </div>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-3)' }}>{ann.content?.slice(0, 80)}...</p>
+                      {ann.expires_at && <div style={{ fontSize: '11px', color: 'var(--yellow)', marginTop: '6px' }}>Expires {new Date(ann.expires_at).toLocaleDateString()}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === 'members' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {members.map(m => (
+              <div key={m.profile_id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: '500' }}>{m.profiles?.full_name}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>{m.profiles?.email} · {m.profiles?.departments?.name}</div>
+                </div>
+                <span className={`badge ${m.role === 'admin' ? 'badge-purple' : 'badge-gray'}`} style={{ fontSize: '10px' }}>
+                  {m.role}
+                </span>
+                {m.profile_id !== userId && (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {m.role === 'member' ? (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handlePromote(m.profile_id)} style={{ fontSize: '11px' }}>Make Admin</button>
+                    ) : (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleDemote(m.profile_id)} style={{ fontSize: '11px' }}>Demote</button>
+                    )}
+                    <button className="btn btn-danger btn-sm" onClick={() => handleRemove(m.profile_id)} style={{ fontSize: '11px' }}>Remove</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
     </div>
   )
 }

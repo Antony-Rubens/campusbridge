@@ -1,94 +1,139 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 
-const STATUS_BADGE: Record<string,string> = { pending:'badge-amber', approved:'badge-green', rejected:'badge-red' }
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
 
 export default function CertificatesPage() {
-  const router = useRouter()
   const [certs, setCerts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all'|'pending'|'approved'|'rejected'>('all')
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
 
   useEffect(() => {
     const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) { router.push('/'); return }
-      const { data } = await supabase.from('certificates').select('*').eq('profile_id', session.user.id).order('created_at', { ascending:false })
-      setCerts(data ?? [])
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from('certificates')
+        .select('*, profiles!certificates_profile_id_fkey(*)')
+        .eq('profile_id', user.id)
+        .order('created_at', { ascending: false })
+      setCerts(data || [])
       setLoading(false)
     }
     load()
-  }, [router])
+  }, [])
 
   const filtered = filter === 'all' ? certs : certs.filter(c => c.status === filter)
 
+  const counts = {
+    all: certs.length,
+    pending: certs.filter(c => c.status === 'pending').length,
+    approved: certs.filter(c => c.status === 'approved').length,
+    rejected: certs.filter(c => c.status === 'rejected').length,
+  }
+
+  const statusBadge = (status: string) => {
+    const map: any = {
+      pending: 'badge-yellow',
+      approved: 'badge-green',
+      rejected: 'badge-red',
+    }
+    return map[status] || 'badge-gray'
+  }
+
   return (
-    <div className="page">
-      <div className="fade-up" style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'24px', flexWrap:'wrap', gap:'12px' }}>
-        <div>
-          <h1 style={{ fontSize:'22px', fontWeight:800, color:'var(--text)', margin:'0 0 4px' }}>Certificates</h1>
-          <p style={{ color:'var(--text2)', fontSize:'13px', margin:0 }}>{certs.length} certificates submitted</p>
+    <div className="page-wrapper">
+      <Sidebar />
+      <main className="main-content">
+        <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div>
+            <h1 className="page-title">My Certificates</h1>
+            <p className="page-subtitle">Track your certificate submissions and approval status</p>
+          </div>
+          <Link href="/certificates/upload" className="btn btn-primary">+ Upload Certificate</Link>
         </div>
-        <Link href="/certificates/upload" className="btn btn-primary">+ Upload Certificate</Link>
-      </div>
 
-      <div className="fade-up-1" style={{ display:'flex', gap:'8px', marginBottom:'20px', flexWrap:'wrap' }}>
-        {(['all','pending','approved','rejected'] as const).map(f => (
-          <button key={f} onClick={() => setFilter(f)} className={`btn btn-sm ${filter === f ? 'btn-primary' : 'btn-secondary'}`} style={{ textTransform:'capitalize' }}>
-            {f} {f !== 'all' && <span style={{ opacity:.7 }}>({certs.filter(c => c.status === f).length})</span>}
-          </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-          {[...Array(3)].map((_,i) => <div key={i} className="card" style={{ height:'80px', opacity:.4 }} />)}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="empty-state">
-          <div className="icon">📜</div>
-          <p style={{ marginBottom:'12px' }}>No certificates {filter !== 'all' ? `with status "${filter}"` : 'yet'}</p>
-          {filter === 'all' && <Link href="/certificates/upload" className="btn btn-primary btn-sm">Upload your first certificate</Link>}
-        </div>
-      ) : (
-        <div className="fade-up-2" style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
-          {filtered.map(cert => (
-            <div key={cert.id} className="card card-hover" style={{ padding:'18px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'16px' }}>
-              <div style={{ flex:1 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'6px', flexWrap:'wrap' }}>
-                  <span className={`badge ${STATUS_BADGE[cert.status] ?? 'badge-gray'}`}>{cert.status}</span>
-                  {cert.activity_category && <span className="badge badge-gray">{cert.activity_category}</span>}
-                  {cert.activity_level && <span className="badge badge-gray">{cert.activity_level}</span>}
-                </div>
-                <p style={{ fontWeight:600, color:'var(--text)', fontSize:'14px', margin:'0 0 4px' }}>{cert.title}</p>
-                {cert.description && <p style={{ color:'var(--text2)', fontSize:'12px', margin:'0 0 6px' }}>{cert.description}</p>}
-                {cert.faculty_remarks && (
-                  <p style={{ color: cert.status === 'rejected' ? 'var(--red)' : 'var(--green)', fontSize:'12px', margin:0, fontStyle:'italic' }}>
-                    Faculty note: "{cert.faculty_remarks}"
-                  </p>
-                )}
-                <p style={{ color:'var(--text3)', fontSize:'11px', margin:'6px 0 0' }}>
-                  Submitted {new Date(cert.created_at).toLocaleDateString('en-IN')}
-                </p>
+        {/* Stats */}
+        <div className="grid-4" style={{ marginBottom: '24px' }}>
+          {(['all', 'pending', 'approved', 'rejected'] as const).map(s => (
+            <div
+              key={s}
+              className="stat-card"
+              onClick={() => setFilter(s)}
+              style={{ cursor: 'pointer', border: filter === s ? '1px solid var(--accent)' : undefined }}
+            >
+              <div className="stat-value" style={{
+                color: s === 'approved' ? 'var(--green)' : s === 'pending' ? 'var(--yellow)' : s === 'rejected' ? 'var(--red)' : 'var(--text)'
+              }}>
+                {counts[s]}
               </div>
-              <div style={{ textAlign:'right', flexShrink:0 }}>
-                {cert.status === 'approved' && (
-                  <p style={{ fontWeight:800, color:'var(--amber)', fontSize:'20px', margin:'0 0 2px', lineHeight:1 }}>+{cert.awarded_points}</p>
-                )}
-                {cert.status === 'pending' && cert.suggested_points > 0 && (
-                  <p style={{ color:'var(--text3)', fontSize:'12px', margin:'0 0 2px' }}>{cert.suggested_points} pts suggested</p>
-                )}
-                {cert.file_url && (
-                  <a href={cert.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-xs">View file</a>
-                )}
-              </div>
+              <div className="stat-label">{s.charAt(0).toUpperCase() + s.slice(1)}</div>
             </div>
           ))}
         </div>
-      )}
+
+        {loading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {[...Array(4)].map((_, i) => <div key={i} className="skeleton" style={{ height: '80px', borderRadius: 'var(--radius)' }} />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">📄</div>
+            <div className="empty-title">No certificates {filter !== 'all' ? `with status "${filter}"` : 'yet'}</div>
+            <div className="empty-desc">Upload a certificate to get your KTU activity points reviewed</div>
+            <Link href="/certificates/upload" className="btn btn-primary" style={{ marginTop: '16px' }}>Upload Certificate</Link>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {filtered.map(cert => (
+              <div key={cert.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: '40px', height: '40px', borderRadius: 'var(--radius-sm)',
+                  background: cert.status === 'approved' ? 'var(--green-glow)' : cert.status === 'rejected' ? 'var(--red-glow)' : 'var(--yellow-glow)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '18px', flexShrink: 0,
+                }}>
+                  {cert.status === 'approved' ? '✓' : cert.status === 'rejected' ? '✗' : '⏳'}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '3px', color: 'var(--text)' }}>
+                    {cert.title}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>
+                    {cert.activity_category} · {cert.activity_level?.charAt(0).toUpperCase() + cert.activity_level?.slice(1)} level
+                    · Submitted {new Date(cert.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </div>
+                  {cert.status === 'rejected' && cert.faculty_remarks && (
+                    <div style={{
+                      marginTop: '6px', fontSize: '12px', color: 'var(--red)',
+                      background: 'var(--red-glow)', borderRadius: 'var(--radius-sm)',
+                      padding: '4px 10px', display: 'inline-block',
+                    }}>
+                      Remark: {cert.faculty_remarks}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-3)', marginBottom: '2px' }}>Points</div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: cert.status === 'approved' ? 'var(--green)' : 'var(--text-3)' }}>
+                      {cert.status === 'approved' ? `+${cert.awarded_points}` : cert.suggested_points}
+                      {cert.status === 'pending' && <span style={{ fontSize: '10px', color: 'var(--text-3)' }}> est.</span>}
+                    </div>
+                  </div>
+                  <span className={`badge ${statusBadge(cert.status)}`}>
+                    {cert.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
     </div>
   )
 }
