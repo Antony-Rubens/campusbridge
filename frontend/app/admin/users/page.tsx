@@ -68,6 +68,8 @@ export default function AdminUsersPage() {
   }
 
   const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true); setCsvStatus(''); setCsvError('')
@@ -145,10 +147,12 @@ export default function AdminUsersPage() {
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}>↓ Download Template</button>
-            <label className="btn btn-primary btn-sm" style={{ cursor: 'pointer' }}>
-              {uploading ? 'Uploading...' : '↑ Upload CSV'}
-              <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} disabled={uploading} />
-            </label>
+            <div style={{ position: 'relative', display: 'inline-flex' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                {uploading ? 'Uploading...' : '↑ Upload CSV'}
+              </button>
+              <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none', position: 'absolute' }} disabled={uploading} />
+            </div>
             {csvStatus && <span style={{ fontSize: '12px', color: 'var(--green)' }}>{csvStatus}</span>}
           </div>
           {csvError && (
