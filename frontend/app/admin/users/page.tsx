@@ -95,29 +95,39 @@ export default function AdminUsersPage() {
         : null
 
       try {
+        // Check if profile already exists with this email
         const { data: existing } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('email', record.email)
-          .single()
+          .from('profiles').select('id').eq('email', record.email).maybeSingle()
 
-        const profileId = existing?.id || crypto.randomUUID()
-
-        const { error: profileError } = await supabase.from('profiles').upsert({
-          id: profileId,
-          full_name: record.full_name,
-          email: record.email,
-          role: record.role || 'student',
-          roll_number: record.roll_number || null,
-          department_id: dept?.id || null,
-          batch_id: batch?.id || null,
-          semester: parseInt(record.semester) || null,
-          scheme: record.scheme || batch?.scheme || '2025',
-          is_profile_complete: false,
-          skills: [],
-        }, { onConflict: 'id' })
-
-        if (profileError) throw profileError
+        if (existing?.id) {
+          // Update existing profile
+          const { error: updateError } = await supabase.from('profiles').update({
+            full_name: record.full_name,
+            role: record.role || 'student',
+            roll_number: record.roll_number || null,
+            department_id: dept?.id || null,
+            batch_id: batch?.id || null,
+            semester: parseInt(record.semester) || null,
+            scheme: record.scheme || batch?.scheme || '2025',
+          }).eq('email', record.email)
+          if (updateError) throw updateError
+        } else {
+          // Insert new profile with generated UUID
+          const { error: insertError } = await supabase.from('profiles').insert({
+            id: crypto.randomUUID(),
+            full_name: record.full_name,
+            email: record.email,
+            role: record.role || 'student',
+            roll_number: record.roll_number || null,
+            department_id: dept?.id || null,
+            batch_id: batch?.id || null,
+            semester: parseInt(record.semester) || null,
+            scheme: record.scheme || batch?.scheme || '2025',
+            is_profile_complete: false,
+            skills: [],
+          })
+          if (insertError) throw insertError
+        }
         created++
       } catch (err: any) {
         failed++
