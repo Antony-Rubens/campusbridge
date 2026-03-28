@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 
-export default function Page() {
+export default function DashboardPage() {
   const [profile, setProfile] = useState<any>(null)
   const [announcements, setAnnouncements] = useState<any[]>([])
   const [events, setEvents] = useState<any[]>([])
@@ -37,7 +37,6 @@ export default function Page() {
 
       if (communityIds.length > 0) {
         const now = new Date().toISOString()
-
         const { data: ann } = await supabase
           .from('announcements')
           .select('*, communities(name)')
@@ -63,6 +62,7 @@ export default function Page() {
         .from('activity_point_records')
         .select('awarded_points')
         .eq('profile_id', user.id)
+
       const total = ptRecords?.reduce((s, r) => s + r.awarded_points, 0) || 0
 
       const { count: pendingCount } = await supabase
@@ -70,6 +70,7 @@ export default function Page() {
         .select('id', { count: 'exact', head: true })
         .eq('profile_id', user.id)
         .eq('status', 'pending')
+
       setPoints({ total, pending: pendingCount || 0 })
 
       // Recent cert activity (last 7 days)
@@ -82,8 +83,8 @@ export default function Page() {
         .gte('reviewed_at', sevenDaysAgo)
         .order('reviewed_at', { ascending: false })
         .limit(5)
-      setActivity(recentCerts || [])
 
+      setActivity(recentCerts || [])
       setLoading(false)
     }
     load()
@@ -98,9 +99,9 @@ export default function Page() {
     </div>
   )
 
-  // Show minimum UI even if profile partially loaded
   const totalPts = points.total
-  const KTU_REQUIRED = 100
+  const is2024 = profile?.scheme === '2024'
+  const KTU_REQUIRED = is2024 ? 120 : 100
   const progressPct = Math.min((totalPts / KTU_REQUIRED) * 100, 100)
 
   return (
@@ -114,7 +115,6 @@ export default function Page() {
           </p>
         </div>
 
-        {/* Stats */}
         <div className="grid-4" style={{ marginBottom: '24px' }}>
           <div className="stat-card">
             <div className="stat-value" style={{ color: 'var(--accent)' }}>{totalPts}</div>
@@ -140,7 +140,6 @@ export default function Page() {
           </div>
         </div>
 
-        {/* No coordinator warning */}
         {!profile?.faculty_coordinator_id && (
           <div style={{
             background: 'var(--yellow-glow)', border: '1px solid #f5c54220',
@@ -157,7 +156,7 @@ export default function Page() {
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-          {/* Announcements */}
+          {/* Announcements & Events UI remains identical to your design */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
               <h3 style={{ fontSize: '13px', color: 'var(--text-2)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -195,8 +194,6 @@ export default function Page() {
               </div>
             )}
           </div>
-
-          {/* Events */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
               <h3 style={{ fontSize: '13px', color: 'var(--text-2)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -232,7 +229,6 @@ export default function Page() {
           </div>
         </div>
 
-        {/* Recent activity */}
         {activity.length > 0 && (
           <div style={{ marginTop: '24px' }}>
             <h3 style={{ fontSize: '13px', color: 'var(--text-2)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>

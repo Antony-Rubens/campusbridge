@@ -1,17 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase, KTU_CATEGORIES, KTU_TARGET_POINTS } from '@/lib/supabase'
+import { supabase, KTU_TARGET_POINTS_2019, KTU_TARGET_POINTS_2024, KTU_TARGET_PER_GROUP_2024 } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
 
 export default function AdminReportsPage() {
   const [students, setStudents] = useState<any[]>([])
   const [pointTotals, setPointTotals] = useState<Record<string, number>>({})
-  const [catTotals, setCatTotals] = useState<Record<string, Record<string, number>>>({})
+  const [groupTotals, setGroupTotals] = useState<Record<string, Record<number, number>>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterDept, setFilterDept] = useState('')
   const [filterBatch, setFilterBatch] = useState('')
+  const [filterScheme, setFilterScheme] = useState('')
   const [departments, setDepartments] = useState<any[]>([])
   const [batches, setBatches] = useState<any[]>([])
 
@@ -33,24 +34,36 @@ export default function AdminReportsPage() {
         const ids = studs.map(s => s.id)
         const { data: recs } = await supabase
           .from('activity_point_records')
-          .select('profile_id, category, awarded_points')
+          .select('profile_id, group_number, segment, awarded_points, scheme')
           .in('profile_id', ids)
 
         const totals: Record<string, number> = {}
-        const cats: Record<string, Record<string, number>> = {}
+        const groups: Record<string, Record<number, number>> = {}
 
         recs?.forEach(r => {
           totals[r.profile_id] = (totals[r.profile_id] || 0) + r.awarded_points
-          if (!cats[r.profile_id]) cats[r.profile_id] = {}
-          cats[r.profile_id][r.category] = (cats[r.profile_id][r.category] || 0) + r.awarded_points
+          if (!groups[r.profile_id]) groups[r.profile_id] = { 1: 0, 2: 0, 3: 0 }
+          if (r.group_number) {
+            groups[r.profile_id][r.group_number] = (groups[r.profile_id][r.group_number] || 0) + r.awarded_points
+          }
         })
         setPointTotals(totals)
-        setCatTotals(cats)
+        setGroupTotals(groups)
       }
       setLoading(false)
     }
     load()
   }, [])
+
+  const isEligible = (student: any) => {
+    const total = pointTotals[student.id] || 0
+    const scheme = student.scheme ?? '2024'
+    if (scheme === '2019') return total >= KTU_TARGET_POINTS_2019
+    const g = groupTotals[student.id] || {}
+    return (g[1] || 0) >= KTU_TARGET_PER_GROUP_2024 &&
+           (g[2] || 0) >= KTU_TARGET_PER_GROUP_2024 &&
+           (g[3] || 0) >= KTU_TARGET_PER_GROUP_2024
+  }
 
   const filtered = students.filter(s => {
     const matchSearch = !search ||
@@ -58,19 +71,24 @@ export default function AdminReportsPage() {
       s.roll_number?.toLowerCase().includes(search.toLowerCase())
     const matchDept = !filterDept || s.departments?.id === filterDept
     const matchBatch = !filterBatch || s.batches?.id === filterBatch
-    return matchSearch && matchDept && matchBatch
+    const matchScheme = !filterScheme || s.scheme === filterScheme
+    return matchSearch && matchDept && matchBatch && matchScheme
   })
 
-  const metCount = filtered.filter(s => (pointTotals[s.id] || 0) >= KTU_TARGET_POINTS).length
+  const metCount = filtered.filter(s => isEligible(s)).length
 
   const exportCSV = () => {
-    const headers = ['Name', 'Roll No', 'Department', 'Batch', 'Semester', 'Scheme', 'Total Points', ...KTU_CATEGORIES]
-    const rows = filtered.map(s => [
-      s.full_name, s.roll_number || '', s.departments?.name || '', s.batches?.name || '',
-      s.semester || '', s.scheme || '',
-      pointTotals[s.id] || 0,
-      ...KTU_CATEGORIES.map(cat => catTotals[s.id]?.[cat] || 0),
-    ])
+    const headers = ['Name', 'Roll No', 'Department', 'Batch', 'Semester', 'Scheme', 'Total Points', 'Group I', 'Group II', 'Group III', 'Eligible']
+    const rows = filtered.map(s => {
+      const g = groupTotals[s.id] || {}
+      return [
+        s.full_name, s.roll_number || '', s.departments?.name || '', s.batches?.name || '',
+        s.semester || '', s.scheme || '',
+        pointTotals[s.id] || 0,
+        g[1] || 0, g[2] || 0, g[3] || 0,
+        isEligible(s) ? 'Yes' : 'No'
+      ]
+    })
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -91,7 +109,6 @@ export default function AdminReportsPage() {
           <button className="btn btn-ghost" onClick={exportCSV}>↓ Export CSV</button>
         </div>
 
-        {/* Summary stats */}
         <div className="grid-4" style={{ marginBottom: '24px' }}>
           <div className="stat-card">
             <div className="stat-value">{filtered.length}</div>
@@ -106,14 +123,22 @@ export default function AdminReportsPage() {
             <div className="stat-label">Still Pending</div>
           </div>
           <div className="stat-card">
-            <div className="stat-value">{filtered.length > 0 ? Math.round(filtered.reduce((s, st) => s + (pointTotals[st.id] || 0), 0) / filtered.length) : 0}</div>
+            <div className="stat-value">
+              {filtered.length > 0
+                ? Math.round(filtered.reduce((s, st) => s + (pointTotals[st.id] || 0), 0) / filtered.length)
+                : 0}
+            </div>
             <div className="stat-label">Avg Points</div>
           </div>
         </div>
 
-        {/* Filters */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <input className="input" placeholder="Search by name or roll number..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: '260px' }} />
+          <input className="input" placeholder="Search by name or roll number…" value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: '240px' }} />
+          <select className="input" value={filterScheme} onChange={e => setFilterScheme(e.target.value)} style={{ maxWidth: '160px' }}>
+            <option value="">All Schemes</option>
+            <option value="2024">2024 Scheme</option>
+            <option value="2019">2019 Scheme</option>
+          </select>
           <select className="input" value={filterDept} onChange={e => setFilterDept(e.target.value)} style={{ maxWidth: '200px' }}>
             <option value="">All Departments</option>
             {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -124,15 +149,12 @@ export default function AdminReportsPage() {
           </select>
         </div>
 
-        {/* Table */}
-        {loading ? (
-          <div className="spinner" />
-        ) : (
+        {loading ? <div className="spinner" /> : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Student', 'Dept', 'Batch', 'Total', ...KTU_CATEGORIES, 'Status'].map(h => (
+                  {['Student', 'Dept', 'Batch', 'Scheme', 'Total', 'G1', 'G2', 'G3', 'Status'].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-3)', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
                       {h}
                     </th>
@@ -142,7 +164,9 @@ export default function AdminReportsPage() {
               <tbody>
                 {filtered.map(s => {
                   const total = pointTotals[s.id] || 0
-                  const met = total >= KTU_TARGET_POINTS
+                  const g = groupTotals[s.id] || {}
+                  const eligible = isEligible(s)
+                  const scheme = s.scheme ?? '2024'
                   return (
                     <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '10px 12px' }}>
@@ -151,24 +175,45 @@ export default function AdminReportsPage() {
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text-2)' }}>{s.departments?.name}</td>
                       <td style={{ padding: '10px 12px', color: 'var(--text-2)' }}>{s.batches?.name}</td>
-                      <td style={{ padding: '10px 12px', fontWeight: '700', color: met ? 'var(--green)' : total > 50 ? 'var(--yellow)' : 'var(--text)' }}>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span className="badge badge-gray" style={{ fontSize: '10px' }}>{scheme}</span>
+                      </td>
+                      <td style={{ padding: '10px 12px', fontWeight: '700', color: eligible ? 'var(--green)' : total > 50 ? 'var(--yellow)' : 'var(--text)' }}>
                         {total}
                       </td>
-                      {KTU_CATEGORIES.map(cat => (
-                        <td key={cat} style={{ padding: '10px 12px', color: 'var(--text-2)' }}>
-                          {catTotals[s.id]?.[cat] || 0}
+                      {scheme === '2024' ? (
+                        <>
+                          {[1, 2, 3].map(gi => {
+                            const gpts = g[gi] || 0
+                            const gmet = gpts >= KTU_TARGET_PER_GROUP_2024
+                            return (
+                              <td key={gi} style={{ padding: '10px 12px', color: gmet ? 'var(--green)' : 'var(--text-2)', fontWeight: gmet ? '700' : '400' }}>
+                                {gpts}
+                              </td>
+                            )
+                          })}
+                        </>
+                      ) : (
+                        <td colSpan={3} style={{ padding: '10px 12px', color: 'var(--text-3)', fontSize: '11px' }}>
+                          — (2019 scheme: total only)
                         </td>
-                      ))}
+                      )}
                       <td style={{ padding: '10px 12px' }}>
-                        <span className={`badge badge-${met ? 'green' : 'yellow'}`} style={{ fontSize: '10px' }}>
-                          {met ? '✓ Met' : `${KTU_TARGET_POINTS - total} left`}
+                        <span className={`badge badge-${eligible ? 'green' : 'yellow'}`} style={{ fontSize: '10px' }}>
+                          {eligible ? '✓ Met' : scheme === '2019'
+                            ? `${KTU_TARGET_POINTS_2019 - total} left`
+                            : `${3 - [1,2,3].filter(gi => (g[gi]||0) >= KTU_TARGET_PER_GROUP_2024).length} groups left`}
                         </span>
                       </td>
                     </tr>
                   )
                 })}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={5 + KTU_CATEGORIES.length} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-3)' }}>No students found</td></tr>
+                  <tr>
+                    <td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-3)' }}>
+                      No students found
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>

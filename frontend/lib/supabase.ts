@@ -1,15 +1,20 @@
-// lib/supabase.ts
 import { createBrowserClient } from '@supabase/ssr'
 
 export type Role = 'student' | 'faculty' | 'system_admin'
-export type Scheme = '2019' | '2025'
+export type Scheme = '2019' | '2024'
 export type CommunityType = 'class' | 'general'
 export type CommunityCategory = 'Technical' | 'Cultural' | 'Sports' | 'Social' | 'Professional'
-export type ActivityLevel = 'college' | 'university' | 'national' | 'international'
 export type CertStatus = 'pending' | 'approved' | 'rejected'
 export type CommunityStatus = 'pending' | 'approved' | 'rejected'
 export type ScoutStatus = 'pending' | 'accepted' | 'ignored'
 export type NotifType = 'scout_invite' | 'certificate_approved' | 'certificate_rejected' | 'community_approved' | 'community_rejected' | 'event_reminder' | 'general'
+
+export const ACTIVITY_LEVELS = ['college', 'zonal', 'state', 'national', 'international'] as const
+export type ActivityLevel = typeof ACTIVITY_LEVELS[number]
+
+export const KTU_TARGET_POINTS_2019 = 100
+export const KTU_TARGET_POINTS_2024 = 120
+export const KTU_TARGET_PER_GROUP_2024 = 40
 
 export interface Department {
   id: string
@@ -124,8 +129,13 @@ export interface Certificate {
   id: string
   profile_id: string
   title: string
-  activity_category: string
-  activity_level: ActivityLevel
+  scheme: Scheme
+  group_number: number | null
+  segment: string | null
+  sub_activity_code: string | null
+  sub_activity_name: string | null
+  event_level: ActivityLevel | null
+  achievement_type: string | null
   file_path: string | null
   file_deleted: boolean
   status: CertStatus
@@ -143,10 +153,13 @@ export interface ActivityPointRecord {
   id: string
   profile_id: string
   certificate_id: string
-  category: string
-  scheme: Scheme
+  group_number: number | null
+  segment: string | null
+  sub_activity_code: string | null
+  event_level: string | null
+  achievement_type: string | null
   awarded_points: number
-  attempt_number: number
+  scheme: Scheme
   approved_by: string | null
   created_at: string
   certificates?: Certificate
@@ -155,13 +168,28 @@ export interface ActivityPointRecord {
 export interface KtuRule {
   id: string
   scheme: Scheme
-  category: string
-  level: ActivityLevel
-  base_points: number
-  max_points_per_category: number
-  attempt_2_multiplier: number
-  attempt_3_multiplier: number
-  updated_at: string
+  group_number: number | null
+  segment: string | null
+  sub_activity_code: string
+  sub_activity_name: string
+  points_l1: number
+  points_l2: number
+  points_l3: number
+  points_l4: number
+  points_l5: number
+  points_fixed: number
+  points_tier_1: number
+  points_tier_2: number
+  points_tier_3: number
+  has_participation: boolean
+  has_winner_single: boolean
+  has_winner_group: boolean
+  winner_first_add: number
+  winner_second_add: number
+  winner_third_add: number
+  max_points: number
+  notes: string | null
+  created_at: string
 }
 
 export interface Notification {
@@ -189,7 +217,6 @@ export interface ScoutInvite {
   inviter?: Profile
 }
 
-// ── Supabase client (browser) ─────────────────────────────────
 export const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -201,7 +228,6 @@ export const supabase = createBrowserClient(
   }
 )
 
-// ── Skills & Interests fixed list ────────────────────────────
 export const SKILLS_LIST = {
   'Technical': [
     'Python', 'Java', 'C++', 'JavaScript', 'React', 'Node.js',
@@ -231,23 +257,30 @@ export const SKILLS_LIST = {
 
 export const ALL_SKILLS = Object.values(SKILLS_LIST).flat()
 
-// ── Preset banner gradients (index 0-7) ──────────────────────
 export const BANNER_GRADIENTS = [
-  'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',       // 0 — navy deep
-  'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',       // 1 — purple cosmos
-  'linear-gradient(135deg, #134e5e 0%, #71b280 100%)',                     // 2 — teal forest
-  'linear-gradient(135deg, #c94b4b 0%, #4b134f 100%)',                     // 3 — crimson dusk
-  'linear-gradient(135deg, #373b44 0%, #4286f4 100%)',                     // 4 — steel blue
-  'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)',                     // 5 — amber gold
-  'linear-gradient(135deg, #141e30 0%, #243b55 100%)',                     // 6 — midnight
-  'linear-gradient(135deg, #1d4350 0%, #a43931 100%)',                     // 7 — ocean rust
+  'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+  'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
+  'linear-gradient(135deg, #134e5e 0%, #71b280 100%)',
+  'linear-gradient(135deg, #c94b4b 0%, #4b134f 100%)',
+  'linear-gradient(135deg, #373b44 0%, #4286f4 100%)',
+  'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)',
+  'linear-gradient(135deg, #141e30 0%, #243b55 100%)',
+  'linear-gradient(135deg, #1d4350 0%, #a43931 100%)',
 ]
 
-export const BANNER_PATTERNS = [
-  '📚', '🚀', '🌿', '🎭', '⚡', '🏆', '🌙', '🔥'
-]
+export const BANNER_PATTERNS = ['📚', '🚀', '🌿', '🎭', '⚡', '🏆', '🌙', '🔥']
 
-// ── KTU Categories ────────────────────────────────────────────
-export const KTU_CATEGORIES = ['Sports', 'Cultural', 'Technical', 'Professional', 'Social']
-export const ACTIVITY_LEVELS: ActivityLevel[] = ['college', 'university', 'national', 'international']
-export const KTU_TARGET_POINTS = 100
+export const GROUP_LABELS: Record<number, string> = {
+  1: 'Group I — Sports, Arts & Cultural',
+  2: 'Group II — Technical, Competitions & Academic',
+  3: 'Group III — Industry, Innovation & Research',
+}
+
+export const SEGMENT_LABELS: Record<string, string> = {
+  '1-national': 'National Initiatives',
+  '2-sports': 'Sports & Games',
+  '3-cultural': 'Cultural Activities',
+  '4-professional': 'Professional Self Initiatives',
+  '5-entrepreneurship': 'Entrepreneurship & Innovation',
+  '6-leadership': 'Leadership & Management',
+}
