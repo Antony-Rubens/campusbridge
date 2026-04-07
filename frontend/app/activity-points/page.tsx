@@ -52,30 +52,36 @@ export default function Page() {
     load()
   }, [])
 
+  // Safely determine scheme, default to 2024 if missing
   const scheme = profile?.scheme ?? '2024'
   const is2024 = scheme === '2024'
 
+  // Calculate Group Points (2024)
   const groupPoints = {
-    1: records.filter(r => r.group_number === 1).reduce((s, r) => s + r.awarded_points, 0),
-    2: records.filter(r => r.group_number === 2).reduce((s, r) => s + r.awarded_points, 0),
-    3: records.filter(r => r.group_number === 3).reduce((s, r) => s + r.awarded_points, 0),
+    1: records.filter(r => r.group_number === 1).reduce((s, r) => s + (r.awarded_points || 0), 0),
+    2: records.filter(r => r.group_number === 2).reduce((s, r) => s + (r.awarded_points || 0), 0),
+    3: records.filter(r => r.group_number === 3).reduce((s, r) => s + (r.awarded_points || 0), 0),
   }
+  
   const total2024 = groupPoints[1] + groupPoints[2] + groupPoints[3]
   const creditsEarned = [1, 2, 3].filter(g => groupPoints[g as 1|2|3] >= SCHEME_2024_REQUIRED_PER_GROUP).length
   const eligible2024 = creditsEarned === 3
 
-  const total2019 = records.reduce((s, r) => s + r.awarded_points, 0)
+  // Calculate Total Points (2019)
+  const total2019 = records.reduce((s, r) => s + (r.awarded_points || 0), 0)
   const eligible2019 = total2019 >= SCHEME_2019_REQUIRED
 
+  // Determine Final Display Variables based on Scheme
   const total = is2024 ? total2024 : total2019
   const required = is2024 ? SCHEME_2024_REQUIRED_TOTAL : SCHEME_2019_REQUIRED
   const eligible = is2024 ? eligible2024 : eligible2019
 
   const segmentTotal = (seg: string) =>
-    records.filter(r => r.segment === seg).reduce((s, r) => s + r.awarded_points, 0)
+    records.filter(r => r.segment === seg).reduce((s, r) => s + (r.awarded_points || 0), 0)
 
   if (loading) return (
-    <div className="page-wrapper"><Sidebar />
+    <div className="page-wrapper">
+      <Sidebar />
       <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div className="spinner" />
       </main>
@@ -95,25 +101,33 @@ export default function Page() {
         <div className="card" style={{ marginBottom: '24px', padding: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '16px' }}>
             <div>
-              <div style={{ fontSize: '3.5rem', fontWeight: '800', color: 'var(--accent)', letterSpacing: '-0.04em', lineHeight: 1 }}>
-                {total}
+              {/* FIXED: Now explicitly shows {total} / {required} so 2024 students see the 120 goal */}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                <div style={{ fontSize: '3.5rem', fontWeight: '800', color: 'var(--accent)', letterSpacing: '-0.04em', lineHeight: 1 }}>
+                  {total}
+                </div>
+                <div style={{ fontSize: '1.5rem', fontWeight: '600', color: 'var(--text-3)' }}>
+                  / {required}
+                </div>
               </div>
               <div style={{ fontSize: '13px', color: 'var(--text-3)', marginTop: '4px' }}>
                 total activity points earned
               </div>
             </div>
+            
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '1.5rem', fontWeight: '700', color: eligible ? 'var(--green)' : 'var(--text-2)' }}>
-                {is2024 ? `${creditsEarned}/3 Credits` : eligible ? '✓ Done' : `${required - total} left`}
+                {eligible ? '✓ Done' : is2024 ? `${creditsEarned}/3 Credits` : `${required - total} left`}
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>
                 {eligible
                   ? is2024 ? 'All 3 activity credits earned' : 'KTU requirement met (2 credits)'
-                  : `of ${required} required`}
+                  : is2024 ? 'Need 40 pts in all 3 groups' : `of ${required} required`}
               </div>
             </div>
           </div>
           <div className="progress-track" style={{ height: '10px' }}>
+            {/* The * 100 here is just for percentage width, it doesn't cap the points at 100 */}
             <div className="progress-fill" style={{ width: `${Math.min((total / required) * 100, 100)}%` }} />
           </div>
         </div>

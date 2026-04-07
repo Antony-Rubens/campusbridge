@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { supabase, BANNER_GRADIENTS, BANNER_PATTERNS, KTU_CATEGORIES, type Event } from '@/lib/supabase'
+import { supabase, BANNER_GRADIENTS, BANNER_PATTERNS, type Event } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
+
+// Local category list for filtering events on the Discover page
+const DISCOVER_CATEGORIES = ['Technical', 'Cultural', 'Sports', 'Social', 'Professional', 'Entrepreneurship', 'Leadership']
 
 export default function DiscoverPage() {
   const [events, setEvents] = useState<any[]>([])
@@ -61,7 +64,7 @@ export default function DiscoverPage() {
           />
           <select className="input" value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={{ maxWidth: '180px' }}>
             <option value="">All Categories</option>
-            {KTU_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            {DISCOVER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           {(search || filterCategory) && (
             <button className="btn btn-ghost btn-sm" onClick={() => { setSearch(''); setFilterCategory('') }}>

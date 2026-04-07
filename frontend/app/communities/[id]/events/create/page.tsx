@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { supabase, KTU_CATEGORIES, ACTIVITY_LEVELS } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 import Sidebar from '@/components/Sidebar'
+
+// Local lists to replace the deleted supabase.ts exports
+const DISCOVER_CATEGORIES = ['Technical', 'Cultural', 'Sports', 'Social', 'Professional', 'Entrepreneurship', 'Leadership']
+const EVENT_LEVELS = ['college', 'zonal', 'state', 'national', 'international']
 
 export default function CreateEventPage() {
   const { id } = useParams()
   const router = useRouter()
   const [userId, setUserId] = useState('')
   const [community, setCommunity] = useState<any>(null)
-  const [scheme, setScheme] = useState('2019')
 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -19,7 +22,7 @@ export default function CreateEventPage() {
   const [venue, setVenue] = useState('')
   const [ktuCategory, setKtuCategory] = useState('')
   const [activityLevel, setActivityLevel] = useState('')
-  const [suggestedPoints, setSuggestedPoints] = useState(0)
+  const [suggestedPoints, setSuggestedPoints] = useState<number | ''>('')
   const [maxParticipants, setMaxParticipants] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -30,36 +33,20 @@ export default function CreateEventPage() {
       if (!user) return
       setUserId(user.id)
 
-      const { data: comm } = await supabase.from('communities').select('*, batches(scheme)').eq('id', id).single()
+      const { data: comm } = await supabase.from('communities').select('*').eq('id', id).single()
       setCommunity(comm)
-      if (comm?.batches?.scheme) setScheme(comm.batches.scheme)
     }
     load()
   }, [id])
-
-  // Auto-fetch suggested points when category + level selected
-  useEffect(() => {
-    if (!ktuCategory || !activityLevel) { setSuggestedPoints(0); return }
-    const fetchPoints = async () => {
-      const { data } = await supabase
-        .from('ktu_rules')
-        .select('base_points')
-        .eq('scheme', scheme)
-        .eq('category', ktuCategory)
-        .eq('level', activityLevel)
-        .single()
-      setSuggestedPoints(data?.base_points || 0)
-    }
-    fetchPoints()
-  }, [ktuCategory, activityLevel, scheme])
 
   const handleSubmit = async () => {
     if (!title.trim()) { setError('Title is required'); return }
     if (!eventDate) { setError('Event date is required'); return }
     setSaving(true)
     setError('')
+    
     try {
-      const { error } = await supabase.from('events').insert({
+      const { error: insertError } = await supabase.from('events').insert({
         community_id: id,
         title: title.trim(),
         description: description.trim() || null,
@@ -68,12 +55,13 @@ export default function CreateEventPage() {
         venue: venue.trim() || null,
         ktu_category: ktuCategory || null,
         activity_level: activityLevel || null,
-        suggested_points: suggestedPoints,
+        suggested_points: suggestedPoints ? Number(suggestedPoints) : 0,
         max_participants: maxParticipants ? parseInt(maxParticipants) : null,
         created_by: userId,
         banner_index: Math.floor(Math.random() * 8),
       })
-      if (error) throw error
+      if (insertError) throw insertError
+      
       router.push(`/communities/${id}`)
     } catch (e: any) {
       setError(e.message || 'Failed to create event')
@@ -124,40 +112,36 @@ export default function CreateEventPage() {
           </div>
 
           <div className="card" style={{ marginBottom: '20px' }}>
-            <h3 style={{ marginBottom: '16px', fontSize: '12px', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>KTU Activity Points</h3>
+            <h3 style={{ marginBottom: '16px', fontSize: '12px', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Event Categorization & Points</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div className="input-group">
-                <label className="input-label">KTU Category</label>
+                <label className="input-label">Event Category</label>
                 <select className="input" value={ktuCategory} onChange={e => setKtuCategory(e.target.value)}>
                   <option value="">Select category</option>
-                  {KTU_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  {DISCOVER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div className="input-group">
-                <label className="input-label">Activity Level</label>
+                <label className="input-label">Event Level</label>
                 <select className="input" value={activityLevel} onChange={e => setActivityLevel(e.target.value)}>
                   <option value="">Select level</option>
-                  {ACTIVITY_LEVELS.map(l => <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>)}
+                  {EVENT_LEVELS.map(l => <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>)}
                 </select>
               </div>
             </div>
-            {suggestedPoints > 0 && (
-              <div style={{
-                background: 'var(--green-glow)', border: '1px solid #3ecf8e20',
-                borderRadius: 'var(--radius-sm)', padding: '10px 14px',
-                display: 'flex', alignItems: 'center', gap: '10px',
-              }}>
-                <span style={{ fontSize: '1.2rem' }}>✓</span>
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--green)' }}>
-                    {suggestedPoints} activity points
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>
-                    Based on KTU {scheme} scheme · {ktuCategory} · {activityLevel} level
-                  </div>
-                </div>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label className="input-label">Suggested Activity Points</label>
+              <input 
+                type="number" 
+                className="input" 
+                placeholder="e.g. 15" 
+                value={suggestedPoints} 
+                onChange={e => setSuggestedPoints(e.target.value ? Number(e.target.value) : '')} 
+              />
+              <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
+                Students will see this as the estimated reward for attending.
               </div>
-            )}
+            </div>
           </div>
 
           {error && (
