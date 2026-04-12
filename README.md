@@ -18,3 +18,5 @@ Pull before you Push: Always run git pull origin main before you start working t
 Atomic Commits: Make small, frequent commits with clear messages (e.g., "Add login validation" instead of "Fixed stuff").
 
 ReadMe Updates: Since you are the "Bridge" for your campus project, keep that README.md updated with instructions on how to run the frontend and backend locally.
+
+# We are done with the project need to optimize the available features next
