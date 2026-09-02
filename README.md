@@ -4,7 +4,7 @@ CampusBridge – Community, Event &amp; KTU Activity Point Management System (KT
 
 Starting with the login page 
 
-USER INTERFACE and frontend to br dobe by alex siny and aslin
+USER INTERFACE and frontend to br dobe by alex sony and aslin yesudas
 
 # Keep this in mind everyone 
 
